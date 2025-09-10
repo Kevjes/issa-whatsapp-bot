@@ -35,26 +35,6 @@ export const config: AppConfig = {
     maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10)
   },
   
-  banking: {
-    apiUrl: process.env.BANKING_API_URL || 'https://api.yourbank.com',
-    username: process.env.BANKING_USERNAME || 'wbankingtest',
-    password: process.env.BANKING_PASSWORD || 'wbankingtest$$$2025',
-    email: process.env.BANKING_EMAIL || 'wbankingtest@afb.ss',
-    device: process.env.BANKING_DEVICE || 'app'
-  },
-  
-  pin: {
-    sessionTimeoutMinutes: parseInt(process.env.PIN_SESSION_TIMEOUT_MINUTES || '5', 10),
-    cleanupIntervalMinutes: parseInt(process.env.PIN_SESSION_CLEANUP_INTERVAL_MINUTES || '5', 10),
-    baseUrl: process.env.PIN_BASE_URL || 'http://localhost:3000'
-  },
-  
-  welcome: {
-    images: process.env.WELCOME_IMAGES ? process.env.WELCOME_IMAGES.split(',').map(url => url.trim()) : [
-      'https://i.ibb.co/60XL01BH/Chat-GPT-Image-Jul-23-2025-11-05-00-PM.png'
-    ]
-  },
-  
   initWords: {
     words: (process.env.INIT_WORDS || 'hi,hello,bonjour,salut,start,menu,accueil,home,restart,reset')
       .split(',')
@@ -63,26 +43,8 @@ export const config: AppConfig = {
   },
   
   database: {
-    path: process.env.DB_PATH || './data/banking.db'
+    path: process.env.DB_PATH || './data/issa.db'
   },
-  
-  dashboard: {
-    admin: {
-      username: process.env.DASHBOARD_ADMIN_USERNAME || 'admin',
-      password: process.env.DASHBOARD_ADMIN_PASSWORD || 'admin123'
-    },
-    jwt: {
-      secret: process.env.DASHBOARD_JWT_SECRET || 'dashboard_super_secret_jwt_key',
-      expiresIn: process.env.DASHBOARD_JWT_EXPIRES_IN || '8h',
-      refreshExpiresIn: process.env.DASHBOARD_JWT_REFRESH_EXPIRES_IN || '30d'
-    },
-    cleanup: {
-      enabled: process.env.AUTO_CLEANUP_ENABLED === 'true',
-      intervalHours: parseInt(process.env.AUTO_CLEANUP_INTERVAL_HOURS || '24', 10),
-      logsRetentionDays: parseInt(process.env.LOGS_RETENTION_DAYS || '30', 10),
-      sessionsRetentionDays: parseInt(process.env.SESSIONS_RETENTION_DAYS || '7', 10)
-    }
-  }
 };
 
 // URLs de l'API WhatsApp

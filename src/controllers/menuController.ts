@@ -4,7 +4,6 @@ import { logger } from '../utils/logger';
 import { WhatsAppIncomingMessage } from '../types';
 import { IWhatsAppService } from '../core/interfaces/IWhatsAppService';
 import { MenuService } from '@/services/menuService';
-import { TransferSessionService } from '@/services/transferSessionService';
 import { BankingTemplates } from '../templates';
 
 
@@ -12,7 +11,6 @@ export class MenuController {
   constructor(
     private whatsappService: IWhatsAppService,
     private menuService: MenuService,
-    private transferSessionService: TransferSessionService
   ) {}
 
   /**
@@ -94,17 +92,10 @@ export class MenuController {
       if (interactiveData.id === 'main_menu' || 
           interactiveData.id === 'return_to_menu' || 
           interactiveData.title.toUpperCase().includes('MENU')) {
-        // Annuler toute session de transfert active avant d'afficher le menu
-        await this.transferSessionService.cancelTransfer(phoneNumber);
         
         const menuMessage = await this.menuService.createWelcomeMessage(phoneNumber);
         await this.whatsappService.sendMessage(menuMessage);
         logger.info('Main menu sent following MENU selection', { phoneNumber, trigger: interactiveData.title });
-        return;
-      }
-
-      // Vérifier s'il s'agit d'actions de transfert
-      if (await this.handleTransferInteractiveActions(interactiveData.id, phoneNumber)) {
         return;
       }
 
@@ -133,9 +124,6 @@ export class MenuController {
    */
   private async sendWelcomeMessage(phoneNumber: string, userName: string): Promise<void> {
     try {
-      // Annuler toute session de transfert active avant d'afficher le message de bienvenue
-      await this.transferSessionService.cancelTransfer(phoneNumber);
-      
       // const imageSent = await this.whatsappService.sendImageMessage(
       //   phoneNumber, 
       //   getRandomWelcomeImage(), 
@@ -166,131 +154,6 @@ export class MenuController {
         userName: userName,
         error: error.message
       });
-    }
-  }
-
-  /**
-   * Gérer les entrées texte pendant une session de transfert
-   */
-  private async handleTransferTextInput(textData: { text: string; from: string; messageId: string; }, phoneNumber: string): Promise<void> {
-    try {
-      const textContent = textData.text;
-      const transferSession = await this.transferSessionService.getTransferSession(phoneNumber);
-      
-      if (!transferSession) {
-        return;
-      }
-
-      logger.info('Processing transfer text input', { 
-        phoneNumber, 
-        step: transferSession.step, 
-        textLength: textContent.length 
-      });
-
-      switch (transferSession.step) {
-        case 'receiver_input':
-          await this.transferSessionService.processReceiverAccountInput(phoneNumber, textContent);
-          break;
-        case 'amount_input':
-          await this.transferSessionService.processAmountInput(phoneNumber, textContent);
-          break;
-        case 'reason_input':
-          await this.transferSessionService.processReasonInput(phoneNumber, textContent);
-          break;
-        case 'otp_verification':
-          await this.transferSessionService.processOtpValidation(phoneNumber, textContent);
-          break;
-        default:
-          logger.warn('Unknown transfer step', { phoneNumber, step: transferSession.step });
-      }
-    } catch (error) {
-      logger.error('Error processing transfer text input', {
-        phoneNumber,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
-  }
-
-  /**
-   * Gérer les actions interactives liées aux transferts
-   */
-  private async handleTransferInteractiveActions(optionId: string, phoneNumber: string): Promise<boolean> {
-    try {
-      switch (optionId) {
-        case 'transfer_confirm_receiver':
-          // Confirmer le compte bénéficiaire et passer à l'étape montant
-          const session = await this.transferSessionService.getTransferSession(phoneNumber);
-          if (session && session.step === 'receiver_confirmation') {
-            await this.transferSessionService.updateTransferSession(phoneNumber, {
-              step: 'amount_input'
-            });
-            
-            const amountMessage = BankingTemplates.createAmountInputMessage(
-              phoneNumber, 
-              session.senderAccount!, 
-              session.receiverAccount!
-            );
-            await this.whatsappService.sendMessage(amountMessage);
-          }
-          return true;
-
-        case 'transfer_reject_receiver':
-          // Rejeter le compte bénéficiaire et recommencer
-          await this.transferSessionService.updateTransferSession(phoneNumber, {
-            receiverAccount: undefined,
-            step: 'receiver_input'
-          });
-          
-          const session2 = await this.transferSessionService.getTransferSession(phoneNumber);
-          if (session2) {
-            const inputMessage = BankingTemplates.createReceiverAccountInputMessage(
-              phoneNumber, 
-              session2.senderAccount!
-            );
-            await this.whatsappService.sendMessage(inputMessage);
-          }
-          return true;
-
-        case 'transfer_confirm_final':
-          // Confirmer et exécuter le transfert
-          await this.transferSessionService.executeTransfer(phoneNumber);
-          return true;
-
-        case 'transfer_cancel':
-          // Annuler le transfert
-          await this.transferSessionService.cancelTransfer(phoneNumber);
-
-          const menuMessage = await this.menuService.createWelcomeMessage(phoneNumber);
-          await this.whatsappService.sendMessage(menuMessage);
-          return true;
-
-        case 'transfer_retry_receiver':
-          // Réessayer la saisie du compte bénéficiaire
-          const session3 = await this.transferSessionService.getTransferSession(phoneNumber);
-          if (session3) {
-            await this.transferSessionService.updateTransferSession(phoneNumber, {
-              receiverAccount: undefined,
-              step: 'receiver_input'
-            });
-            
-            const inputMessage = BankingTemplates.createReceiverAccountInputMessage(
-              phoneNumber, 
-              session3.senderAccount!
-            );
-            await this.whatsappService.sendMessage(inputMessage);
-          }
-          return true;
-
-        default:
-          return false;
-      }
-    } catch (error) {
-      logger.error('Error processing transfer interactive actions', {
-        phoneNumber,
-        optionId,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-      return false;
     }
   }
 

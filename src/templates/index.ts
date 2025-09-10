@@ -4,8 +4,6 @@
  */
 
 export { MenuTemplates } from './menu';
-export { AuthTemplates } from './auth';
-export { BankingTemplates } from './banking';
 export { ErrorTemplates } from './error';
 export { SystemButtonTemplates } from './systemButtons';
 

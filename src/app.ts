@@ -10,7 +10,6 @@ import { generalRateLimit, adminRateLimit } from './middlewares/rateLimiter';
 import whatsappWebhook from './webhooks/whatsappWebhook';
 import pinRoutes from './routes/pinRoutes';
 import logRoutes from './routes/logRoutes';
-import { createDashboardRoutes } from './routes/dashboardRoutes';
 import { ServiceConfig } from './core/config/ServiceConfig';
 import { container, TOKENS } from './core';
 import { IWhatsAppService } from './core/interfaces/IWhatsAppService';
@@ -56,62 +55,14 @@ class App {
   private async initializeDashboardRoutes(): Promise<void> {
     try {
       // Importer les services nécessaires
-      const { DashboardService } = await import('./services/dashboardService');
-      const { DashboardAuthService } = await import('./services/dashboardAuthService');
       const { DatabaseService } = await import('./services/databaseService');
       const { logManagementService } = await import('./services/logManagementService');
-      const { PinSessionService } = await import('./services/pinSessionService');
-      const { TransferSessionService } = await import('./services/transferSessionService');
 
       // Créer les instances des services
       const databaseService = new DatabaseService();
       await databaseService.initialize();
       
       logger.info('Database service initialized successfully');
-      
-      const authService = new DashboardAuthService(databaseService);
-      
-      // Vérifier que l'authService est bien créé
-      if (!authService) {
-        throw new Error('Failed to create dashboard auth service');
-      }
-      
-      logger.info('Dashboard auth service created successfully');
-      
-      // Pour les autres services, nous utiliserons des instances mock pour l'instant
-      const pinSessionService = new PinSessionService(databaseService, null as any, null as any, null as any);
-      const transferSessionService = new TransferSessionService(null as any, null as any);
-      
-      const dashboardService = new DashboardService(
-        databaseService,
-        logManagementService,
-        pinSessionService,
-        transferSessionService
-      );
-
-      // Vérifier que tous les services sont bien créés avant de créer les routes
-      if (!dashboardService || !authService) {
-        throw new Error('Failed to initialize dashboard services');
-      }
-
-      // Créer les routes du dashboard
-      logger.info('Creating dashboard routes with services', {
-        dashboardService: !!dashboardService,
-        authService: !!authService,
-        authServiceConstructor: authService ? authService.constructor.name : 'null'
-      });
-      
-      logger.info('About to call createDashboardRoutes with authService:', {
-        authService: authService,
-        authServiceType: typeof authService,
-        isNull: authService === null,
-        isUndefined: authService === undefined
-      });
-      
-      const dashboardRoutes = createDashboardRoutes(dashboardService, authService);
-      this.app.use('/api/dashboard', dashboardRoutes);
-      
-      logger.info('Dashboard routes initialized successfully');
     } catch (error) {
       logger.error('Error initializing dashboard routes', { 
         error: error instanceof Error ? error.message : error,

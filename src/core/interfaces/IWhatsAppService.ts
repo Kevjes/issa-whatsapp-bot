@@ -16,11 +16,6 @@ export interface IWhatsAppService {
   sendTextMessage(to: string, message: string): Promise<boolean>;
 
   /**
-   * Envoyer un message image via WhatsApp
-   */
-  sendImageMessage(to: string, imageUrl: string, caption?: string): Promise<boolean>;
-
-  /**
    * Envoyer un message d'erreur standardisé
    */
   sendErrorMessage(to: string, errorType?: 'technical' | 'validation' | 'rate_limit'): Promise<boolean>;

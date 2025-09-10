@@ -291,43 +291,11 @@ export interface AppConfig {
     windowMs: number;
     maxRequests: number;
   };
-  banking: {
-    apiUrl: string;
-    username: string;
-    password: string;
-    email: string;
-    device: string;
-  };
-  pin: {
-    sessionTimeoutMinutes: number;
-    cleanupIntervalMinutes: number;
-    baseUrl: string;
-  };
-  welcome: {
-    images: string[];
-  };
   initWords: {
     words: string[];
   };
   database: {
     path: string;
-  };
-  dashboard: {
-    admin: {
-      username: string;
-      password: string;
-    };
-    jwt: {
-      secret: string;
-      expiresIn: string;
-      refreshExpiresIn: string;
-    };
-    cleanup: {
-      enabled: boolean;
-      intervalHours: number;
-      logsRetentionDays: number;
-      sessionsRetentionDays: number;
-    };
   };
 }
 

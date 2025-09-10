@@ -90,66 +90,26 @@ export class MenuTemplates {
   private static getMainMenuSections() {
     return [
       {
-        title: 'Operations',
+        title: 'MENU',
         rows: [
-          {
-            id: 'account_balance',
-            title: '💰 Account Balance',
-          },
-          {
-            id: 'mini_statement',
-            title: '📄 Mini Statement',
-          },
           {
             id: 'contact_us',
-            title: '💬 Contact Us',
-          }
-        ]
-      },
-      {
-        title: 'Transfers',
-        rows: [
-          {
-            id: 'intra_bank',
-            title: '🏦 Intra-Bank',
+            title: '💬 Contactez-nous',
           },
           {
-            id: 'inter_bank',
-            title: '🏛️ Inter-Bank',
-            description: 'Coming Soon 😊'
-          }
-        ]
-      },
-      {
-        title: 'Information about us',
-        rows: [
+            id: 'about',
+            title: '🏛️ A propos',
+          },
           {
-            id: 'whatsapp_banking',
-            title: "💬 What's AFBSS Connect",
+            id: 'where',
+            title: '📍 Où sommes-nous',
           },
           {
             id: 'working_hours',
-            title: '🕐 AFBSS Working Hours',
-          },
-          {
-            id: 'pin_info',
-            title: '🔒 PIN',
+            title: '🕒 Heures d\'ouverture',
           }
         ]
       },
-      {
-        title: 'Locations & Services',
-        rows: [
-          {
-            id: 'our_branches',
-            title: '🏢 Our Branches',
-          },
-          {
-            id: 'atm_pos_network',
-            title: '🏧 ATM and PoS Network',
-          }
-        ]
-      }
     ];
   }
 
@@ -158,13 +118,10 @@ export class MenuTemplates {
    */
   static getInfoMessages() {
     return {
-      contact_us: '💬 Contact Us has been selected successfully.\n\nYou can contact us via:\n- Phone: +211 922 442 446\n- Email: firstbank@afrilandfirstbankss.com\n- Address: Juba, South Sudan',
-      inter_bank: '🏛️ Inter-Bank has been selected successfully.\n\nComing Soon 😊\n\nThis functionality will be available soon for transfers to other banks.',
-      whatsapp_banking: '💬 _What is First Bank Connect_ has been selected successfully.\n\nFirst Bank Connect is an innovative service of Afriland First Bank that allows you to perform your banking operations directly via WhatsApp.',
-      working_hours: '🕐 AFBSS Working Hours has been selected successfully.\n\nOur opening hours:\n- Monday to Friday: 8h00 AM - 4h00 PM\n- Saturday: 9h00 AM - 4h00 PM\n- Sunday: Closed\n\n✅ Beyond branch hours, our digital services remain open 24/7.',
-      pin_info: '🔒 PIN has been selected successfully.\n\nYour PIN is a 6-digit security code necessary to validate your transactions. Keep it confidential.',
-      our_branches: '🏢 Our Branches has been selected successfully.\n\nOur branch locations:\n- Hai cinema➡ opposite Juba One boys school.\n- Airport Road Branch\n- Konyokonyo ➡ Marahba Road\n- Gudele 1 ➡ Next to Antipas\n- Gudele ll ➡ Zain compound\n- University of Juba ➡ clock Tower\n- Sherikat ➡ Nile pet station\n- Nimule➡ Custom compound\n- Airport branch➡ Aviation Center',
-      atm_pos_network: '🏧 ATM and PoS Network has been selected successfully.\n\nOur ATM and PoS locations:\n- Hai Cinema Branch\n- Airport Road Branch\n- Konyokonyo Branch\n- Sherikat Branch\n- Gabat\n- Imperial plaza\n- Noble Bistros'
-    };
+      contact_us: '💬 Contactez-nous selectionné avec succès.\n\nVous pouvez nous contacter via:\n- Phone: +237 690 00 00 00\n- Email: contact@issa-takaful.com\n- Address: Yaoundé, Cameroon',
+      about: '🏛️ A propos selectionné avec succès.\n\nJe suis ISSA, assistant virtuel de chez Royal Onyx. \nJe suis ici pour vous aider a en savoir plus sur Royal Onyx et sur le projet Takaful.',
+      where: '💬 _Where_ selectionné avec succès.\n\nRoyal Onyx est une entreprise de assurance vie et assurance maladie qui a pour mission de protéger les personnes et les familles contre les risques de la vie et de la santé.\nNous sommes situés à Yaoundé, Cameroon.',
+      working_hours: '💬 _Working Hours_ selectionné avec succès.\n\nNous sommes ouverts du lundi au vendredi de 8h00 à 17h00. et le samedi de 9h00 à 14h00.',
+   };
   }
 }

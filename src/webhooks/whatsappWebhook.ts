@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { MenuController } from '../controllers/menuController';
 import { 
   validateWhatsAppWebhook, 
-  validateWebhookVerification,
   validateHeaders 
 } from '../middlewares/validation';
 import { webhookRateLimit } from '../middlewares/rateLimiter';
