@@ -4,7 +4,6 @@ import { logger } from '../utils/logger';
 import { WhatsAppIncomingMessage } from '../types';
 import { IWhatsAppService } from '../core/interfaces/IWhatsAppService';
 import { MenuService } from '@/services/menuService';
-import { BankingTemplates } from '../templates';
 
 
 export class MenuController {

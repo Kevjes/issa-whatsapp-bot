@@ -8,7 +8,6 @@ import { logger } from './utils/logger';
 import { errorHandler, requestLogger } from './middlewares/validation';
 import { generalRateLimit, adminRateLimit } from './middlewares/rateLimiter';
 import whatsappWebhook from './webhooks/whatsappWebhook';
-import pinRoutes from './routes/pinRoutes';
 import logRoutes from './routes/logRoutes';
 import { ServiceConfig } from './core/config/ServiceConfig';
 import { container, TOKENS } from './core';
@@ -174,9 +173,6 @@ class App {
 
     // Webhook WhatsApp
     this.app.use('/webhook', whatsappWebhook);
-    
-    // Routes PIN
-    this.app.use('/', pinRoutes);
 
     // Routes administratives (avec rate limiting strict)
     this.app.use('/admin', adminRateLimit);
