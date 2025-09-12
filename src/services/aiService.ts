@@ -112,16 +112,8 @@ export class AIService {
         max_tokens: 1000
       };
 
-      // Configurer les headers pour OpenAI
-      const headers = {
-        'Authorization': `Bearer ${this.aiConfig.apiKey}`,
-        'Content-Type': 'application/json'
-      };
-
-      // Note: baseURL configuration is handled at the HTTP client level
-      const response = await this.httpClient.post('/chat/completions', requestData, {
-        headers
-      });
+      // Note: baseURL and headers are configured at the HTTP client level
+      const response = await this.httpClient.post('/chat/completions', requestData);
 
       const data = response.data as OpenAIResponse;
 
@@ -155,16 +147,8 @@ export class AIService {
         stream: false
       };
 
-      // Configurer les headers pour DeepSeek
-      const headers = {
-        'Authorization': `Bearer ${this.aiConfig.apiKey}`,
-        'Content-Type': 'application/json'
-      };
-
-      // Note: baseURL configuration is handled at the HTTP client level
-      const response = await this.httpClient.post('/chat/completions', requestData, {
-        headers
-      });
+      // Note: baseURL and headers are configured at the HTTP client level
+      const response = await this.httpClient.post('/chat/completions', requestData);
 
       const data = response.data as DeepSeekResponse;
 

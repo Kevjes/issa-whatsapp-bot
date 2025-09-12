@@ -72,6 +72,19 @@ export class ServiceConfig {
       return client;
     });
 
+    // Client HTTP pour l'IA
+    container.register(TOKENS.AI_HTTP_CLIENT, () => {
+      const client = new HttpClient(config.ai.baseUrl, 30000);
+      
+      // Headers par défaut pour l'IA
+      client.setDefaultHeaders({
+        'Content-Type': 'application/json',
+        'Authorization': () => `Bearer ${config.ai.apiKey}`,
+      });
+
+      return client;
+    });
+
     // Client HTTP générique
     container.register(TOKENS.HTTP_CLIENT, () => {
       return new HttpClient();
@@ -106,7 +119,7 @@ export class ServiceConfig {
 
     // Service IA
     container.register(TOKENS.AI_SERVICE, async () => {
-      const httpClient = await container.resolve<IHttpClient>(TOKENS.HTTP_CLIENT);
+      const httpClient = await container.resolve<IHttpClient>(TOKENS.AI_HTTP_CLIENT);
       return new AIService(httpClient);
     });
 

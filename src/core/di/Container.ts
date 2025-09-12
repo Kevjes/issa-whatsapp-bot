@@ -135,6 +135,7 @@ export class Container {
 export const TOKENS = {
   HTTP_CLIENT: Symbol('HttpClient'),
   WHATSAPP_HTTP_CLIENT: Symbol('WhatsAppHttpClient'),
+  AI_HTTP_CLIENT: Symbol('AIHttpClient'),
   WHATSAPP_SERVICE: Symbol('WhatsAppService'),
   DATABASE_SERVICE: Symbol('DatabaseService'),
   // Nouveaux services conversationnels
