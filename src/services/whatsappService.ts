@@ -50,7 +50,7 @@ export class WhatsAppService implements IWhatsAppService {
         logger.logWhatsAppMessage('outgoing', normalizedPhoneNumber, finalMessageData);
         logger.info('WhatsApp message sent', {
           to: normalizedPhoneNumber,
-          messageId: (response.data as any).messages?.[0]?.id
+          messageId: (response.data as { messages?: { id: string }[] }).messages?.[0]?.id
         });
         return true;
       } else {
@@ -61,14 +61,14 @@ export class WhatsAppService implements IWhatsAppService {
         return false;
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Normaliser le numéro pour les logs d'erreur aussi
       const normalizedPhoneNumber = normalizeCameroonianPhoneNumber(messageData.to);
       
       logger.error('Failed to send WhatsApp message', {
         to: normalizedPhoneNumber,
-        error: error.message,
-        status: error.response?.status
+        error: error instanceof Error ? error.message : 'Unknown error',
+        status: (error as { response?: { status?: number } }).response?.status
       });
       return false;
     }
@@ -146,10 +146,10 @@ export class WhatsAppService implements IWhatsAppService {
       );
 
       return response.status === 200;
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Failed to mark message as read', {
         messageId,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
       return false;
     }
@@ -175,7 +175,7 @@ export class WhatsAppService implements IWhatsAppService {
   /**
    * Obtenir les informations du profil WhatsApp Business
    */
-  async getBusinessProfile(): Promise<any> {
+  async getBusinessProfile(): Promise<{ name?: string; description?: string; website?: string; [key: string]: unknown }> {
     try {
       const response = await this.httpClient.get(
         `/${this.phoneNumberId}`,
@@ -186,12 +186,12 @@ export class WhatsAppService implements IWhatsAppService {
         }
       );
 
-       return response.data;
-    } catch (error: any) {
+       return response.data as { name?: string; description?: string; website?: string; [key: string]: unknown };
+    } catch (error: unknown) {
       logger.error('Failed to retrieve business profile', {
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
-      return null;
+      return {};
     }
   }
 }

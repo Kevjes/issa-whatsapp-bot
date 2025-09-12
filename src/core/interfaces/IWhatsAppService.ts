@@ -33,5 +33,5 @@ export interface IWhatsAppService {
   /**
    * Obtenir les informations du profil business
    */
-  getBusinessProfile(): Promise<any>;
+  getBusinessProfile(): Promise<{ name?: string; description?: string; website?: string; [key: string]: unknown }>;
 }

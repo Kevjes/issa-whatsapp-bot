@@ -4,15 +4,15 @@
  */
 export interface IHttpClient {
   get<T>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  post<T>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
-  put<T>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  post<T>(url: string, data?: unknown, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
+  put<T>(url: string, data?: unknown, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
   delete<T>(url: string, config?: HttpRequestConfig): Promise<HttpResponse<T>>;
 }
 
 export interface HttpRequestConfig {
   headers?: Record<string, string>;
   timeout?: number;
-  params?: Record<string, any>;
+  params?: Record<string, string | number>;
 }
 
 export interface HttpResponse<T> {
@@ -25,7 +25,7 @@ export interface HttpResponse<T> {
 export interface HttpError extends Error {
   status?: number;
   response?: {
-    data?: any;
+    data?: unknown;
     status: number;
     statusText: string;
   };

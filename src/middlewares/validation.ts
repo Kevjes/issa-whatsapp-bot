@@ -3,7 +3,6 @@ import { whatsappMessageSchema, validateWebhookSignature } from '../utils/valida
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { ApiError } from '../types';
-import { url } from 'inspector';
 
 /**
  * Middleware pour valider les webhooks WhatsApp
@@ -14,8 +13,8 @@ export const validateWhatsAppWebhook = (req: Request, res: Response, next: NextF
     if (signature) {
       let payload: string;
       
-      if ((req as any).rawBody) {
-        payload = (req as any).rawBody.toString('utf8');
+      if ('rawBody' in req && req.rawBody) {
+        payload = (req.rawBody as Buffer).toString('utf8');
       } else {
         payload = JSON.stringify(req.body);
       }
@@ -57,9 +56,9 @@ export const validateWhatsAppWebhook = (req: Request, res: Response, next: NextF
     req.body = value;
     next();
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error validating webhook', {
-      error: error.message,
+      error: error instanceof Error ? error.message : 'Unknown error',
       body: req.body
     });
     res.status(500).json({ error: 'Error validating webhook' });
@@ -69,7 +68,7 @@ export const validateWhatsAppWebhook = (req: Request, res: Response, next: NextF
 /**
  * Middleware pour valider le token de vérification du webhook
  */
-export const validateWebhookVerification = (req: Request, res: Response, next: NextFunction): void => {
+export const validateWebhookVerification = (req: Request, res: Response, _next: NextFunction): void => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
@@ -93,29 +92,34 @@ export const validateWebhookVerification = (req: Request, res: Response, next: N
 /**
  * Middleware pour gérer les erreurs de l'API
  */
-export const errorHandler = (error: any, req: Request, res: Response, next: NextFunction): void => {
+export const errorHandler = (error: unknown, req: Request, res: Response, _next: NextFunction): void => {
+  const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+  const errorStack = error instanceof Error ? error.stack : undefined;
+  
   logger.error('API error', {
-    error: error.message,
-    stack: error.stack,
+    error: errorMessage,
+    stack: errorStack,
     url: req.url,
     method: req.method,
     body: req.body
   });
 
   // Erreur personnalisée
-  if (error.statusCode) {
-    res.status(error.statusCode).json({
-      error: error.message,
-      code: error.code || 'UNKNOWN_ERROR'
+  if (error && typeof error === 'object' && 'statusCode' in error) {
+    const customError = error as { statusCode: number; message: string; code?: string };
+    res.status(customError.statusCode).json({
+      error: customError.message,
+      code: customError.code || 'UNKNOWN_ERROR'
     });
     return;
   }
 
   // Erreur de validation Joi
-  if (error.isJoi) {
+  if (error && typeof error === 'object' && 'isJoi' in error && 'details' in error) {
+    const joiError = error as { details: unknown[] };
     res.status(400).json({
       error: 'Invalid data',
-      details: error.details
+      details: joiError.details
     });
     return;
   }

@@ -45,6 +45,13 @@ export const config: AppConfig = {
   database: {
     path: process.env.DB_PATH || './data/issa.db'
   },
+  
+  ai: {
+    provider: (process.env.AI_PROVIDER as 'openai' | 'deepseek') || 'deepseek',
+    apiKey: validateEnvVar('AI_API_KEY', process.env.AI_API_KEY),
+    model: process.env.AI_MODEL || (process.env.AI_PROVIDER === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat'),
+    baseUrl: process.env.AI_BASE_URL
+  },
 };
 
 // URLs de l'API WhatsApp

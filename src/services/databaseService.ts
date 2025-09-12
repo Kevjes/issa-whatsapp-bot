@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import { Database } from 'sqlite3';
 import { config } from '../config';
 import { logger } from '../utils/logger';
-import { TokenRecord, PinSession, AccountNumber } from '../types';
+import { User, ConversationMessage, KnowledgeBase } from '../types';
 import { IDatabaseService } from '../core/interfaces/IDatabaseService';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -52,7 +52,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Exécuter une requête SQL
    */
-  private runQuery(sql: string, params: any[] = []): Promise<any> {
+  private runQuery(sql: string, params: unknown[] = []): Promise<{ lastID: number; changes: number }> {
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error('Base de données non initialisée'));
@@ -72,7 +72,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Exécuter une requête SELECT
    */
-  private getQuery(sql: string, params: any[] = []): Promise<any> {
+  private getQuery(sql: string, params: unknown[] = []): Promise<Record<string, unknown> | undefined> {
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error('Base de données non initialisée'));
@@ -83,7 +83,7 @@ export class DatabaseService implements IDatabaseService {
         if (err) {
           reject(err);
         } else {
-          resolve(row);
+          resolve(row as Record<string, unknown> | undefined);
         }
       });
     });
@@ -92,7 +92,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Exécuter une requête SELECT ALL
    */
-  private allQuery(sql: string, params: any[] = []): Promise<any[]> {
+  private allQuery(sql: string, params: unknown[] = []): Promise<Record<string, unknown>[]> {
     return new Promise((resolve, reject) => {
       if (!this.db) {
         reject(new Error('Base de données non initialisée'));
@@ -103,7 +103,7 @@ export class DatabaseService implements IDatabaseService {
         if (err) {
           reject(err);
         } else {
-          resolve(rows || []);
+          resolve((rows || []) as Record<string, unknown>[]);
         }
       });
     });
@@ -127,38 +127,60 @@ export class DatabaseService implements IDatabaseService {
     }
 
     try {
-      // Table des tokens
+
+      // Table des utilisateurs
       await this.runQuery(`
-        CREATE TABLE IF NOT EXISTS tokens (
+        CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          token TEXT NOT NULL,
-          expires_at DATETIME NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+          phone_number TEXT UNIQUE NOT NULL,
+          name TEXT,
+          first_name TEXT,
+          last_name TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          last_interaction DATETIME,
+          is_active INTEGER DEFAULT 1,
+          conversation_state TEXT DEFAULT 'greeting'
         )
       `);
 
-      // Table des sessions PIN
+      // Table des messages de conversation
       await this.runQuery(`
-        CREATE TABLE IF NOT EXISTS pin_sessions (
-          id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS conversation_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
           phone_number TEXT NOT NULL,
-          action TEXT NOT NULL,
-          account_number TEXT,
-          accounts TEXT,
-          created_at DATETIME NOT NULL,
-          expires_at DATETIME NOT NULL,
-          last_authenticated_at DATETIME,
-          is_completed INTEGER DEFAULT 0,
-          is_link_used INTEGER DEFAULT 0,
-          metadata TEXT
+          message_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          message_type TEXT NOT NULL CHECK (message_type IN ('user', 'bot')),
+          timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+          ai_provider TEXT,
+          metadata TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `);
+
+      // Table de la base de connaissances
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS knowledge_base (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          keywords TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          is_active INTEGER DEFAULT 1
         )
       `);
 
       // Index pour optimiser les requêtes
-      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_tokens_expires_at ON tokens(expires_at)');
-      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_pin_sessions_phone_action ON pin_sessions(phone_number, action)');
-      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_pin_sessions_expires_at ON pin_sessions(expires_at)');
-      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_pin_sessions_last_auth ON pin_sessions(last_authenticated_at)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_users_phone_number ON users(phone_number)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_users_last_interaction ON users(last_interaction)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_conversation_messages_user_id ON conversation_messages(user_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_conversation_messages_timestamp ON conversation_messages(timestamp)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_category ON knowledge_base(category)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_keywords ON knowledge_base(keywords)');
 
       logger.info('Tables SQLite créées avec succès');
     } catch (error) {
@@ -167,371 +189,324 @@ export class DatabaseService implements IDatabaseService {
     }
   }
 
+
+
   /**
-   * Sauvegarder un token
+   * Créer ou récupérer un utilisateur
    */
-  async saveToken(tokenRecord: TokenRecord): Promise<void> {
+  async getOrCreateUser(phoneNumber: string, name?: string): Promise<User> {
     await this.ensureInitialized();
 
     try {
-      await this.runQuery(
-        'INSERT INTO tokens (token, expires_at) VALUES (?, ?)',
-        [tokenRecord.token, tokenRecord.expiresAt]
-      );
-      logger.debug('Token sauvegardé avec succès');
-    } catch (error) {
-      logger.error('Erreur lors de la sauvegarde du token', { error });
-      throw error;
-    }
-  }
-
-  /**
-   * Récupérer le dernier token valide
-   */
-  async getLatestToken(): Promise<TokenRecord | null> {
-    await this.ensureInitialized();
-
-    try {
-      const row = await this.getQuery(
-        'SELECT * FROM tokens WHERE expires_at > datetime(\'now\') ORDER BY created_at DESC LIMIT 1'
-      );
-
-      if (!row) {
-        return null;
-      }
-
-      return {
-        id: row.id,
-        token: row.token,
-        expiresAt: row.expires_at,
-        createdAt: row.created_at
-      };
-    } catch (error) {
-      logger.error('Erreur lors de la récupération du token', { error });
-      throw error;
-    }
-  }
-
-  /**
-   * Créer une session PIN
-   */
-  async createPinSession(session: PinSession): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        `INSERT INTO pin_sessions 
-         (id, phone_number, action, account_number, accounts, created_at, expires_at, 
-          last_authenticated_at, is_completed, is_link_used, metadata) 
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          session.id,
-          session.phoneNumber,
-          session.action,
-          session.accountNumber || null,
-          session.accounts ? JSON.stringify(session.accounts) : null,
-          session.createdAt,
-          session.expiresAt,
-          session.lastAuthenticatedAt || null,
-          session.isCompleted ? 1 : 0,
-          session.isLinkUsed ? 1 : 0,
-          session.metadata ? JSON.stringify(session.metadata) : null
-        ]
-      );
-      logger.debug('Session PIN créée avec succès', { sessionId: session.id });
-    } catch (error) {
-      logger.error('Erreur lors de la création de la session PIN', { error, sessionId: session.id });
-      throw error;
-    }
-  }
-
-  /**
-   * Récupérer une session PIN
-   */
-  async getPinSession(sessionId: string): Promise<PinSession | null> {
-    await this.ensureInitialized();
-
-    try {
-      const row = await this.getQuery(
-        'SELECT * FROM pin_sessions WHERE id = ?',
-        [sessionId]
-      );
-
-      if (!row) {
-        return null;
-      }
-
-      const now = new Date();
-      const expiresAt = new Date(row.expires_at);
-      
-      return {
-        id: row.id,
-        phoneNumber: row.phone_number,
-        action: row.action,
-        accountNumber: row.account_number,
-        accounts: row.accounts ? JSON.parse(row.accounts) : undefined,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
-        lastAuthenticatedAt: row.last_authenticated_at,
-        isCompleted: Boolean(row.is_completed),
-        isExpired: now > expiresAt,
-        isLinkUsed: Boolean(row.is_link_used),
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined
-      };
-    } catch (error) {
-      logger.error('Erreur lors de la récupération de la session PIN', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Marquer une session PIN comme complétée
-   */
-  async completePinSession(sessionId: string): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET is_completed = 1 WHERE id = ?',
-        [sessionId]
-      );
-      logger.debug('Session PIN marquée comme complétée', { sessionId });
-    } catch (error) {
-      logger.error('Erreur lors de la complétion de la session PIN', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Récupérer une session active par téléphone et action
-   */
-  async getActiveSessionByPhoneAndAction(phoneNumber: string, action: string): Promise<PinSession | null> {
-    await this.ensureInitialized();
-
-    try {
-      const row = await this.getQuery(
-        `SELECT * FROM pin_sessions 
-         WHERE phone_number = ? AND action = ? 
-         AND is_completed = 0 AND expires_at > datetime('now') 
-         ORDER BY created_at DESC LIMIT 1`,
-        [phoneNumber, action]
-      );
-
-      if (!row) {
-        return null;
-      }
-
-      const now = new Date();
-      const expiresAt = new Date(row.expires_at);
-      
-      return {
-        id: row.id,
-        phoneNumber: row.phone_number,
-        action: row.action,
-        accountNumber: row.account_number,
-        accounts: row.accounts ? JSON.parse(row.accounts) : undefined,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
-        lastAuthenticatedAt: row.last_authenticated_at,
-        isCompleted: Boolean(row.is_completed),
-        isExpired: now > expiresAt,
-        isLinkUsed: Boolean(row.is_link_used),
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined
-      };
-    } catch (error) {
-      logger.error('Erreur lors de la récupération de la session active', { error, phoneNumber, action });
-      throw error;
-    }
-  }
-
-  /**
-   * Mettre à jour le compte d'une session
-   */
-  async updateSessionAccount(sessionId: string, accountNumber: string): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET account_number = ? WHERE id = ?',
-        [accountNumber, sessionId]
-      );
-      logger.debug('Compte de session mis à jour', { sessionId, accountNumber });
-    } catch (error) {
-      logger.error('Erreur lors de la mise à jour du compte de session', { error, sessionId, accountNumber });
-      throw error;
-    }
-  }
-
-  /**
-   * Mettre à jour les comptes d'une session
-   */
-  async updateSessionAccounts(sessionId: string, accounts: AccountNumber[]): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET accounts = ? WHERE id = ?',
-        [JSON.stringify(accounts), sessionId]
-      );
-      logger.debug('Comptes de session mis à jour', { sessionId, accountsCount: accounts.length });
-    } catch (error) {
-      logger.error('Erreur lors de la mise à jour des comptes de session', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Mettre à jour les métadonnées d'une session
-   */
-  async updateSessionMetadata(sessionId: string, metadata: any): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET metadata = ? WHERE id = ?',
-        [JSON.stringify(metadata), sessionId]
-      );
-      logger.debug('Métadonnées de session mises à jour', { sessionId });
-    } catch (error) {
-      logger.error('Erreur lors de la mise à jour des métadonnées de session', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Mettre à jour la dernière authentification d'une session
-   */
-  async updateSessionLastAuthenticated(sessionId: string, lastAuthenticatedAt: string | null): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET last_authenticated_at = ? WHERE id = ?',
-        [lastAuthenticatedAt, sessionId]
-      );
-      logger.debug('Dernière authentification de session mise à jour', { sessionId, lastAuthenticatedAt });
-    } catch (error) {
-      logger.error('Erreur lors de la mise à jour de la dernière authentification', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Marquer un lien PIN comme utilisé
-   */
-  async markPinLinkAsUsed(sessionId: string): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET is_link_used = 1 WHERE id = ?',
-        [sessionId]
-      );
-      logger.debug('Lien PIN marqué comme utilisé', { sessionId });
-    } catch (error) {
-      logger.error('Erreur lors du marquage du lien PIN', { error, sessionId });
-      throw error;
-    }
-  }
-
-  /**
-   * Mettre à jour l'action d'une session
-   */
-  async updateSessionAction(sessionId: string, action: string): Promise<void> {
-    await this.ensureInitialized();
-
-    try {
-      await this.runQuery(
-        'UPDATE pin_sessions SET action = ? WHERE id = ?',
-        [action, sessionId]
-      );
-      logger.debug('Action de session mise à jour', { sessionId, action });
-    } catch (error) {
-      logger.error('Erreur lors de la mise à jour de l\'action de session', { error, sessionId, action });
-      throw error;
-    }
-  }
-
-  /**
-   * Récupérer une session valide avec comptes
-   */
-  async getValidSessionWithAccounts(phoneNumber: string): Promise<{ session: PinSession; accounts: AccountNumber[] } | null> {
-    await this.ensureInitialized();
-
-    try {
-      const row = await this.getQuery(
-        `SELECT * FROM pin_sessions 
-         WHERE phone_number = ? 
-         AND is_completed = 0 
-         AND expires_at > datetime('now') 
-         AND last_authenticated_at IS NOT NULL 
-         AND datetime(last_authenticated_at, '+5 minutes') > datetime('now') 
-         ORDER BY last_authenticated_at DESC 
-         LIMIT 1`,
+      // Vérifier si l'utilisateur existe déjà
+      const existingUser = await this.getQuery(
+        'SELECT * FROM users WHERE phone_number = ?',
         [phoneNumber]
       );
 
-      if (!row) {
-        return null;
+      if (existingUser) {
+        const userRow = existingUser as {
+          id: number;
+          phone_number: string;
+          name: string;
+          first_name: string;
+          last_name: string;
+          created_at: string;
+          updated_at: string;
+          last_interaction: string;
+          is_active: number;
+          conversation_state: string;
+        };
+        
+        // Mettre à jour la dernière interaction
+        await this.runQuery(
+          'UPDATE users SET last_interaction = datetime(\'now\') WHERE id = ?',
+          [userRow.id]
+        );
+
+        return {
+          id: userRow.id,
+          phoneNumber: userRow.phone_number,
+          name: userRow.name,
+          firstName: userRow.first_name,
+          lastName: userRow.last_name,
+          createdAt: userRow.created_at,
+          updatedAt: userRow.updated_at,
+          lastInteraction: userRow.last_interaction,
+          isActive: Boolean(userRow.is_active),
+          conversationState: userRow.conversation_state as User['conversationState'] as User['conversationState']
+        };
       }
 
-      const now = new Date();
-      const expiresAt = new Date(row.expires_at);
-      
-      const session: PinSession = {
-        id: row.id,
-        phoneNumber: row.phone_number,
-        action: row.action,
-        accountNumber: row.account_number,
-        accounts: row.accounts ? JSON.parse(row.accounts) : undefined,
-        createdAt: row.created_at,
-        expiresAt: row.expires_at,
-        lastAuthenticatedAt: row.last_authenticated_at,
-        isCompleted: Boolean(row.is_completed),
-        isExpired: now > expiresAt,
-        isLinkUsed: Boolean(row.is_link_used),
-        metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+      // Créer un nouvel utilisateur
+      const result = await this.runQuery(
+        `INSERT INTO users (phone_number, name, last_interaction) 
+         VALUES (?, ?, datetime('now'))`,
+        [phoneNumber, name || null]
+      );
+
+      const newUser: User = {
+        id: result.lastID,
+        phoneNumber,
+        name: name || undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastInteraction: new Date().toISOString(),
+        isActive: true,
+        conversationState: 'greeting'
       };
 
-      const accounts = row.accounts ? JSON.parse(row.accounts) : [];
-      
-      return { session, accounts };
+      logger.debug('Nouvel utilisateur créé', { userId: result.lastID, phoneNumber });
+      return newUser;
+
     } catch (error) {
-      logger.error('Erreur lors de la récupération de la session valide avec comptes', { error, phoneNumber });
+      logger.error('Erreur lors de la création/récupération de l\'utilisateur', { error, phoneNumber });
       throw error;
     }
   }
 
   /**
-   * Nettoyer les anciens tokens
+   * Mettre à jour l'état de conversation d'un utilisateur
    */
-  async cleanupOldTokens(): Promise<void> {
+  async updateUserState(userId: number, state: User['conversationState'], name?: string): Promise<void> {
     await this.ensureInitialized();
 
     try {
-      const result = await this.runQuery(
-        'DELETE FROM tokens WHERE expires_at < datetime(\'now\')'
+      const updateFields = ['conversation_state = ?', 'updated_at = datetime(\'now\')'];
+      const params: (string | number)[] = [state];
+
+      if (name !== undefined) {
+        updateFields.push('name = ?');
+        params.push(name);
+      }
+
+      params.push(userId);
+
+      await this.runQuery(
+        `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`,
+        params
       );
-      logger.info(`${result.changes} anciens tokens supprimés`);
+
+      logger.debug('État utilisateur mis à jour', { userId, state, name });
     } catch (error) {
-      logger.error('Erreur lors du nettoyage des anciens tokens', { error });
+      logger.error('Erreur lors de la mise à jour de l\'état utilisateur', { error, userId, state });
       throw error;
     }
   }
 
   /**
-   * Nettoyer les sessions expirées
+   * Sauvegarder un message de conversation
    */
-  async cleanupExpiredSessions(): Promise<void> {
+  async saveConversationMessage(message: Omit<ConversationMessage, 'id'>): Promise<number> {
     await this.ensureInitialized();
 
     try {
       const result = await this.runQuery(
-        'DELETE FROM pin_sessions WHERE expires_at < datetime(\'now\')'
+        `INSERT INTO conversation_messages 
+         (user_id, phone_number, message_id, content, message_type, timestamp, ai_provider, metadata) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          message.userId,
+          message.phoneNumber,
+          message.messageId,
+          message.content,
+          message.messageType,
+          message.timestamp,
+          message.aiProvider || null,
+          message.metadata ? JSON.stringify(message.metadata) : null
+        ]
       );
-      logger.info(`${result.changes} sessions expirées supprimées`);
+
+      logger.debug('Message de conversation sauvegardé', { 
+        messageId: result.lastID, 
+        userId: message.userId,
+        messageType: message.messageType 
+      });
+
+      return result.lastID;
     } catch (error) {
-      logger.error('Erreur lors du nettoyage des sessions expirées', { error });
+      logger.error('Erreur lors de la sauvegarde du message', { error, message });
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer l'historique des conversations d'un utilisateur
+   */
+  async getConversationHistory(userId: number, limit: number = 50): Promise<ConversationMessage[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        `SELECT * FROM conversation_messages 
+         WHERE user_id = ? 
+         ORDER BY timestamp DESC 
+         LIMIT ?`,
+        [userId, limit]
+      );
+
+      return rows.map(row => {
+        const messageRow = row as {
+          id: number;
+          user_id: number;
+          phone_number: string;
+          message_id: string;
+          content: string;
+          message_type: string;
+          timestamp: string;
+          ai_provider: string;
+          metadata: string;
+        };
+        
+        return {
+          id: messageRow.id,
+          userId: messageRow.user_id,
+          phoneNumber: messageRow.phone_number,
+          messageId: messageRow.message_id,
+          content: messageRow.content,
+          messageType: messageRow.message_type as 'user' | 'bot',
+          timestamp: messageRow.timestamp,
+          aiProvider: messageRow.ai_provider as 'openai' | 'deepseek' | undefined,
+          metadata: messageRow.metadata ? JSON.parse(messageRow.metadata) : undefined
+        };
+      }).reverse(); // Remettre dans l'ordre chronologique
+
+    } catch (error) {
+      logger.error('Erreur lors de la récupération de l\'historique', { error, userId });
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer les données de la base de connaissances par mots-clés
+   */
+  async searchKnowledgeBase(query: string): Promise<KnowledgeBase[]> {
+    await this.ensureInitialized();
+
+    try {
+      // Recherche dans les mots-clés et le contenu
+      const rows = await this.allQuery(
+        `SELECT * FROM knowledge_base 
+         WHERE is_active = 1 
+         AND (keywords LIKE ? OR content LIKE ? OR title LIKE ?)
+         ORDER BY 
+           CASE 
+             WHEN title LIKE ? THEN 1
+             WHEN keywords LIKE ? THEN 2
+             ELSE 3
+           END`,
+        [
+          `%${query}%`,
+          `%${query}%`,
+          `%${query}%`,
+          `%${query}%`,
+          `%${query}%`
+        ]
+      );
+
+      return rows.map(row => {
+        const knowledgeRow = row as {
+          id: number;
+          category: string;
+          title: string;
+          content: string;
+          keywords: string;
+          created_at: string;
+          updated_at: string;
+          is_active: number;
+        };
+        
+        return {
+          id: knowledgeRow.id,
+          category: knowledgeRow.category,
+          title: knowledgeRow.title,
+          content: knowledgeRow.content,
+          keywords: JSON.parse(knowledgeRow.keywords),
+          createdAt: knowledgeRow.created_at,
+          updatedAt: knowledgeRow.updated_at,
+          isActive: Boolean(knowledgeRow.is_active)
+        };
+      });
+
+    } catch (error) {
+      logger.error('Erreur lors de la recherche dans la base de connaissances', { error, query });
+      throw error;
+    }
+  }
+
+  /**
+   * Ajouter une entrée à la base de connaissances
+   */
+  async addKnowledgeEntry(entry: Omit<KnowledgeBase, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
+    await this.ensureInitialized();
+
+    try {
+      const result = await this.runQuery(
+        `INSERT INTO knowledge_base (category, title, content, keywords, is_active) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          entry.category,
+          entry.title,
+          entry.content,
+          JSON.stringify(entry.keywords),
+          entry.isActive ? 1 : 0
+        ]
+      );
+
+      logger.debug('Entrée ajoutée à la base de connaissances', { 
+        entryId: result.lastID,
+        category: entry.category,
+        title: entry.title
+      });
+
+      return result.lastID;
+    } catch (error) {
+      logger.error('Erreur lors de l\'ajout à la base de connaissances', { error, entry });
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer tous les utilisateurs actifs
+   */
+  async getActiveUsers(): Promise<User[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT * FROM users WHERE is_active = 1 ORDER BY last_interaction DESC'
+      );
+
+      return rows.map(row => {
+        const userRow = row as {
+          id: number;
+          phone_number: string;
+          name: string;
+          first_name: string;
+          last_name: string;
+          created_at: string;
+          updated_at: string;
+          last_interaction: string;
+          is_active: number;
+          conversation_state: string;
+        };
+        
+        return {
+          id: userRow.id,
+          phoneNumber: userRow.phone_number,
+          name: userRow.name,
+          firstName: userRow.first_name,
+          lastName: userRow.last_name,
+          createdAt: userRow.created_at,
+          updatedAt: userRow.updated_at,
+          lastInteraction: userRow.last_interaction,
+          isActive: Boolean(userRow.is_active),
+          conversationState: userRow.conversation_state as User['conversationState']
+        };
+      });
+
+    } catch (error) {
+      logger.error('Erreur lors de la récupération des utilisateurs actifs', { error });
       throw error;
     }
   }

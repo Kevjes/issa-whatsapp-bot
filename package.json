@@ -8,7 +8,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
     "test": "jest",
-    "lint": "eslint src/**/*.ts"
+    "lint": "eslint src/**/*.ts",
+    "init-knowledge": "ts-node src/scripts/initializeKnowledge.ts",
+    "setup": "npm run build && npm run init-knowledge"
   },
   "keywords": [
     "whatsapp",

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { MenuController } from '../controllers/menuController';
+import { ConversationController } from '../controllers/conversationController';
 import { 
   validateWhatsAppWebhook, 
   validateHeaders 
@@ -14,9 +14,22 @@ const router = Router();
  * GET /webhook - Vérification du webhook par Meta
  * Cette route est appelée par Meta pour vérifier que le webhook est valide
  */
-router.get('/', async (req, res) => {
-  const menuController = await container.resolve<MenuController>(TOKENS.MENU_CONTROLLER);
-  return menuController.verifyWebhook(req, res);
+router.get('/', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode === 'subscribe' && token === process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN) {
+    logger.info('Webhook vérifié avec succès');
+    res.status(200).send(challenge);
+  } else {
+    logger.error('Webhook verification failed', {
+      mode,
+      token,
+      expectedToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN
+    });
+    res.status(403).send('Forbidden');
+  }
 });
 
 /**
@@ -36,7 +49,7 @@ router.post('/',
       const change = entry.changes[0];
       const value = change.value;
       
-      // Traiter les messages entrants avec le nouveau système de menu
+      // Traiter les messages entrants avec le nouveau système conversationnel
       if (value.messages && value.messages.length > 0) {
         const message = value.messages[0];
         const phoneNumber = message.from;
@@ -44,21 +57,24 @@ router.post('/',
         // Logger le message entrant
         logger.logWhatsAppMessage('incoming', phoneNumber, message);
         
-        const menuController = await container.resolve<MenuController>(TOKENS.MENU_CONTROLLER);
-        await menuController.handleIncomingMessage(req, res);
+        const conversationController = await container.resolve<ConversationController>(TOKENS.CONVERSATION_CONTROLLER);
+        await conversationController.handleIncomingMessage(req, res);
         return;
       }
       
-      // Traiter les statuts de messages (log seulement)
+      // Traiter les statuts de messages
       if (value.statuses && value.statuses.length > 0) {
-        res.status(200).json({ status: 'received' });
+        const conversationController = await container.resolve<ConversationController>(TOKENS.CONVERSATION_CONTROLLER);
+        await conversationController.handleMessageStatus(req, res);
         return;
       }
       // Répondre OK pour tous les autres événements
       res.status(200).json({ status: 'received' });
-      
-    } catch (error: any) {
-      
+    } catch (error: unknown) {      
+      logger.error('Webhook processing error', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -78,14 +94,15 @@ router.get('/health', async (req, res) => {
       version: '1.0.0'
     });
     
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     logger.error('Health check webhook failed', {
-      error: error.message
+      error: errorMessage
     });
     
     res.status(500).json({
       status: 'unhealthy',
-      error: error.message
+      error: errorMessage
     });
   }
 });
@@ -139,14 +156,14 @@ if (process.env.NODE_ENV === 'development') {
         }]
       };
       
-      // Traiter le message simulé avec le nouveau système de menu
+      // Traiter le message simulé avec le nouveau système conversationnel
       req.body = simulatedMessage;
-      const menuController = await container.resolve<MenuController>(TOKENS.MENU_CONTROLLER);
-      await menuController.handleIncomingMessage(req, res);
+      const conversationController = await container.resolve<ConversationController>(TOKENS.CONVERSATION_CONTROLLER);
+      await conversationController.handleIncomingMessage(req, res);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Test webhook failed', {
-        error: error.message,
+        error: error instanceof Error ? error.message : 'Unknown error',
         body: req.body
       });
       
