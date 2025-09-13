@@ -78,6 +78,7 @@ function checkDataFiles(): boolean {
   const fs = require('fs');
   const roiFile = path.join(process.cwd(), 'docs', 'presentation_ROI.txt');
   const takafulFile = path.join(process.cwd(), 'docs', 'presentation_ROI_takaful.txt');
+  const issaFile = path.join(process.cwd(), 'docs', 'issa.txt');
   
   if (!fs.existsSync(roiFile)) {
     logger.error(`❌ Fichier manquant: ${roiFile}`);
@@ -86,6 +87,11 @@ function checkDataFiles(): boolean {
   
   if (!fs.existsSync(takafulFile)) {
     logger.error(`❌ Fichier manquant: ${takafulFile}`);
+    return false;
+  }
+  
+  if (!fs.existsSync(issaFile)) {
+    logger.error(`❌ Fichier manquant: ${issaFile}`);
     return false;
   }
   

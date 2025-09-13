@@ -66,18 +66,21 @@ export class ConversationService {
           response = await this.handleActiveConversation(user, userMessage);
       }
 
+      // Nettoyer le formatage Markdown avant l'envoi
+      const cleanResponse = this.cleanMarkdownForWhatsApp(response);
+
       // Sauvegarder la réponse du bot
       await this.databaseService.saveConversationMessage({
         userId: user.id!,
         phoneNumber,
         messageId: `bot_${Date.now()}`,
-        content: response,
+        content: cleanResponse,
         messageType: 'bot',
         timestamp: new Date().toISOString(),
         aiProvider: this.aiService.getConfig().provider
       });
 
-      return { response, shouldContinue };
+      return { response: cleanResponse, shouldContinue };
 
     } catch (error) {
       logger.error('Erreur lors du traitement du message', {
@@ -107,17 +110,29 @@ export class ConversationService {
       // Vérifier si l'utilisateur donne son nom dans le premier message
       const nameMatch = this.extractNameFromMessage(userMessage);
       if (nameMatch) {
-        await this.databaseService.updateUserState(user.id!, 'active', nameMatch);
-        const greeting = this.aiService.createGreetingMessage(nameMatch);
-        return `${greeting}\n\nComment puis-je vous aider aujourd'hui ?`;
+        return await this.simulateTypingWhileProcessing(
+          user.phoneNumber,
+          async () => {
+            await this.databaseService.updateUserState(user.id!, 'active', nameMatch);
+            const greeting = this.aiService.createGreetingMessage(nameMatch);
+            return `${greeting}\n\nComment puis-je vous aider aujourd'hui ?`;
+          },
+          2000
+        );
       }
 
-      // Sinon, demander le nom
-      await this.databaseService.updateUserState(user.id!, 'name_collection');
-      const greeting = this.aiService.createGreetingMessage();
-      const nameRequest = this.aiService.createNameRequestMessage();
-      
-      return `${greeting}\n\n${nameRequest}`;
+      // Sinon, demander le nom avec simulation de frappe
+      return await this.simulateTypingWhileProcessing(
+        user.phoneNumber,
+        async () => {
+          await this.databaseService.updateUserState(user.id!, 'name_collection');
+          const greeting = this.aiService.createGreetingMessage();
+          const nameRequest = this.aiService.createNameRequestMessage();
+          
+          return `${greeting}\n\n${nameRequest}`;
+        },
+        1800 // Durée plus courte pour les messages de bienvenue
+      );
 
     } catch (error) {
       logger.error('Erreur lors de la gestion de la salutation', { error, userId: user.id });
@@ -137,12 +152,17 @@ export class ConversationService {
         return "Je n'ai pas bien compris votre nom. Pouvez-vous me dire comment vous vous appelez ?";
       }
 
-      // Sauvegarder le nom et passer à l'état actif
-      await this.databaseService.updateUserState(user.id!, 'active', name);
-      
-      const welcomeMessage = `Ravi de faire votre connaissance, ${name} ! 😊\n\nJe suis ISSA, votre assistant virtuel Royal Onyx Insurance. Je suis là pour vous renseigner sur nos produits d'assurance classiques et notre fenêtre ROI Takaful conforme à la Charia.\n\nComment puis-je vous aider aujourd'hui ?`;
-      
-      return welcomeMessage;
+      // Simuler l'écriture pendant la préparation du message de bienvenue
+      return await this.simulateTypingWhileProcessing(
+        user.phoneNumber,
+        async () => {
+          // Sauvegarder le nom et passer à l'état actif
+          await this.databaseService.updateUserState(user.id!, 'active', name);
+          
+          return `Ravi de faire votre connaissance, ${name} ! 😊\n\nJe suis ISSA, votre assistant virtuel ROI Takaful. Je suis spécialisé dans les assurances islamiques conformes à la Charia, et je peux aussi vous renseigner sur Royal Onyx Insurance.\n\nComment puis-je vous aider aujourd'hui ?`;
+        },
+        2500 // Durée plus courte pour le message de bienvenue
+      );
 
     } catch (error) {
       logger.error('Erreur lors de la collecte du nom', { error, userId: user.id });
@@ -155,20 +175,30 @@ export class ConversationService {
    */
   private async handleActiveConversation(user: User, userMessage: string): Promise<string> {
     try {
-      // Obtenir l'historique de conversation
-      const conversationHistory = await this.databaseService.getConversationHistory(user.id!);
+      // Estimer la durée de traitement basée sur la longueur du message
+      const estimatedDuration = Math.min(Math.max(userMessage.length * 50, 2000), 8000);
       
-      // Rechercher dans la base de connaissances
-      const knowledgeContext = await this.knowledgeService.getContextForQuery(userMessage);
-      
-      // Créer le prompt système avec contexte
-      const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
-      
-      // Générer la réponse avec l'IA
-      const aiResponse: AIResponse = await this.aiService.generateResponse(
-        userMessage,
-        conversationHistory,
-        systemPrompt
+      // Simuler l'écriture pendant le traitement IA
+      const aiResponse: AIResponse = await this.simulateTypingWhileProcessing(
+        user.phoneNumber,
+        async () => {
+          // Obtenir l'historique de conversation
+          const conversationHistory = await this.databaseService.getConversationHistory(user.id!);
+          
+          // Rechercher dans la base de connaissances
+          const knowledgeContext = await this.knowledgeService.getContextForQuery(userMessage);
+          
+          // Créer le prompt système avec contexte
+          const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
+          
+          // Générer la réponse avec l'IA
+          return await this.aiService.generateResponse(
+            userMessage,
+            conversationHistory,
+            systemPrompt
+          );
+        },
+        estimatedDuration
       );
 
       if (!aiResponse.success || !aiResponse.content) {
@@ -244,7 +274,7 @@ export class ConversationService {
     
     // Détecter le type de requête
     if (this.knowledgeService.isTakafulQuery(userMessage)) {
-      return `${greeting}pour les questions concernant nos produits Takaful conformes à la Charia, je vous invite à consulter notre site spécialisé :\n\n🕌 **ROI Takaful :** www.roitakaful.com\n📞 **Service client :** +237 691 100 575\n\nNotre équipe vous accompagnera avec plaisir !`;
+      return `${greeting}pour les questions concernant nos produits Takaful conformes à la Charia, je vous invite à consulter notre site spécialisé :\n\n🕌 ROI Takaful : www.roitakaful.com\n📞 Service client : +237 691 100 575\n\nNotre équipe vous accompagnera avec plaisir !`;
     }
 
     const keywords = this.knowledgeService.identifyRelevantKeywords(userMessage);
@@ -275,6 +305,89 @@ export class ConversationService {
       logger.error('Erreur lors de la récupération du contexte', { error, phoneNumber });
       return null;
     }
+  }
+
+  /**
+   * Nettoyer le formatage Markdown pour WhatsApp
+   */
+  private cleanMarkdownForWhatsApp(text: string): string {
+    return text
+      // Supprimer les en-têtes Markdown (###, ##, #)
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/^### (.+)$/gm, '📋 $1')
+      .replace(/^## (.+)$/gm, '📌 $1')
+      .replace(/^# (.+)$/gm, '🎯 $1')
+      // Supprimer les gras et italiques Markdown
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      // Gérer les flèches et symboles spéciaux de l'image
+      .replace(/^→\s*/gm, '▶️ ')
+      .replace(/→/g, '▶️')
+      // Supprimer les séparateurs markdown
+      .replace(/^-{3,}$/gm, '')
+      .replace(/^---$/gm, '')
+      // Nettoyer les listes avec tirets
+      .replace(/^- /gm, '🔹 ')
+      .replace(/^\+ /gm, '✅ ')
+      // Nettoyer les listes numérotées
+      .replace(/^\d+\.\s*/gm, '📍 ')
+      // Gérer les caractères spéciaux problématiques
+      .replace(/\*Ce dont nous avons parlé\*/g, '💬 Ce dont nous avons parlé')
+      .replace(/\*([^*]+)\*/g, '$1')
+      // Supprimer les espaces multiples et lignes vides excessives
+      .replace(/\n\s*\n\s*\n/g, '\n\n')
+      .replace(/\s+$/gm, '') // Supprimer les espaces en fin de ligne
+      .trim();
+  }
+
+  /**
+   * Simuler l'indicateur "En train d'écrire" pendant le traitement
+   */
+  private async simulateTypingWhileProcessing<T>(
+    phoneNumber: string,
+    processingFunction: () => Promise<T>,
+    estimatedDuration: number = 3000
+  ): Promise<T> {
+    // Démarrer l'indicateur "En train d'écrire"
+    // Note: nous devons importer le whatsappService mais pour éviter la dépendance circulaire,
+    // nous le récupérerons via le container
+    const { container, TOKENS } = await import('../core');
+    const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE) as {
+      sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean>;
+    };
+    
+    // Démarrer l'indicateur de frappe
+    await whatsappService.sendTypingIndicator(phoneNumber, true);
+    
+    try {
+      // Calculer un délai minimum réaliste basé sur la longueur du message
+      const minDelay = Math.max(1500, Math.min(estimatedDuration * 0.3, 2500));
+      
+      // Exécuter le traitement et le délai en parallèle
+      const [result] = await Promise.all([
+        processingFunction(),
+        this.simulateRealisticTypingDelay(minDelay, estimatedDuration)
+      ]);
+      
+      return result;
+    } finally {
+      // Toujours arrêter l'indicateur de frappe à la fin
+      await whatsappService.sendTypingIndicator(phoneNumber, false);
+    }
+  }
+
+  /**
+   * Simuler un délai de frappe réaliste avec variations
+   */
+  private async simulateRealisticTypingDelay(minDelay: number, maxDelay: number): Promise<void> {
+    // Ajouter une variation naturelle de +/- 20%
+    const variation = 0.2;
+    const randomFactor = 1 + (Math.random() - 0.5) * variation;
+    const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
+    
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
 
   /**

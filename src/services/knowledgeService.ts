@@ -25,6 +25,9 @@ export class KnowledgeService {
 
       logger.info('Initialisation de la base de connaissances...');
 
+      // Charger les données d'identité ISSA
+      await this.loadISSAIdentityData();
+      
       // Charger les données ROI et ROI Takaful
       await this.loadROIData();
       await this.loadROITakafulData();
@@ -106,6 +109,40 @@ export class KnowledgeService {
       logger.info('Données ROI Takaful chargées avec succès');
     } catch (error) {
       logger.error('Erreur lors du chargement des données ROI Takaful', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger les données d'identité d'ISSA
+   */
+  private async loadISSAIdentityData(): Promise<void> {
+    try {
+      const issaFilePath = path.join(process.cwd(), 'docs', 'issa.txt');
+      
+      if (!fs.existsSync(issaFilePath)) {
+        logger.warn('Fichier issa.txt introuvable', { path: issaFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(issaFilePath, 'utf8');
+      
+      // Ajouter l'entrée d'identité d'ISSA
+      await this.databaseService.addKnowledgeEntry({
+        category: 'issa_identity',
+        title: 'Identité et Rôle d\'ISSA',
+        content: content,
+        keywords: [
+          'issa', 'assistant virtuel', 'roi takaful', 'royal onyx insurance',
+          'royal takaful', 'entreprise mère', 'assurances islamiques',
+          'identité', 'présentation', 'qui est issa', 'rôle'
+        ],
+        isActive: true
+      });
+
+      logger.info('Données d\'identité ISSA chargées avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement des données d\'identité ISSA', { error });
       throw error;
     }
   }

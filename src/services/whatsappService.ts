@@ -156,6 +156,58 @@ export class WhatsAppService implements IWhatsAppService {
   }
 
   /**
+   * Simuler l'indicateur "En train d'écrire"
+   */
+  async sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean> {
+    try {
+      // Normaliser le numéro de téléphone
+      const normalizedPhoneNumber = normalizeCameroonianPhoneNumber(to);
+
+      if (!validatePhoneNumber(normalizedPhoneNumber)) {
+        logger.error('Invalid phone number for typing indicator', { 
+          original: to,
+          normalized: normalizedPhoneNumber 
+        });
+        return false;
+      }
+
+      const typingData = {
+        messaging_product: 'whatsapp' as const,
+        recipient_type: 'individual' as const,
+        to: normalizedPhoneNumber,
+        type: isTyping ? 'typing_on' as const : 'typing_off' as const
+      };
+
+      const response = await this.httpClient.post(
+        `/${config.whatsapp.phoneNumberId}/messages`,
+        typingData
+      );
+
+      if (response.status === 200) {
+        logger.debug(`Typing indicator ${isTyping ? 'started' : 'stopped'}`, {
+          to: normalizedPhoneNumber
+        });
+        return true;
+      } else {
+        logger.warn('Failed to send typing indicator', {
+          to: normalizedPhoneNumber,
+          status: response.status,
+          isTyping
+        });
+        return false;
+      }
+
+    } catch (error: unknown) {
+      logger.error('Error sending typing indicator', {
+        to,
+        isTyping,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
    * Vérifier la santé du service WhatsApp
    */
   async healthCheck(): Promise<boolean> {

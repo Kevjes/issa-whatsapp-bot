@@ -26,6 +26,11 @@ export interface IWhatsAppService {
   markMessageAsRead(messageId: string): Promise<boolean>;
 
   /**
+   * Simuler l'indicateur "En train d'écrire"
+   */
+  sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean>;
+
+  /**
    * Vérifier la santé du service
    */
   healthCheck(): Promise<boolean>;
