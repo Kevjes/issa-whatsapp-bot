@@ -193,7 +193,7 @@ FORMATAGE IMPORTANT :
 - N'utilise JAMAIS de Markdown (pas de *, **, #, ###, →, ---, etc.)
 - Utilise uniquement du texte simple avec des emojis
 - Pour structurer : utilise des espaces, des retours à la ligne et des emojis
-- Exemple : ✅ au lieu de *, 🔹 pour les listes, 📍 pour les points importants
+- Exemple : ✅ au lieu de *, 🔹 pour les listes ou - pour faire plus naturel, 📍 pour les points importants (pas forcement 📍 car sa doit etre le plus naturel possible)
 
 CONNAISSANCES DISPONIBLES :
 ${knowledgeContext || 'Informations générales sur ROI et ROI Takaful disponibles.'}
@@ -247,7 +247,7 @@ INSTRUCTIONS IMPORTANTES :
    */
   createWebsiteRedirection(topic: string = "cette demande"): string {
     return `Pour ${topic}, je vous invite à consulter notre site web pour des informations détaillées et à jour :
-      
+
 🌐 Site principal : www.royalonyx.cm
 🕌 ROI Takaful : www.roitakaful.com
 📞 Service client : +237 691 100 575
