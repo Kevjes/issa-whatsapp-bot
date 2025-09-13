@@ -55,7 +55,7 @@ export const config: AppConfig = {
 };
 
 // URLs de l'API WhatsApp
-export const WHATSAPP_API_BASE_URL = 'https://graph.facebook.com/v22.0';
+export const WHATSAPP_API_BASE_URL = 'https://graph.facebook.com/v23.0';
 export const WHATSAPP_SEND_MESSAGE_URL = `${WHATSAPP_API_BASE_URL}/${config.whatsapp.phoneNumberId}/messages`;
 
 // Configuration des logs

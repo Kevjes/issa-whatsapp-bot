@@ -5,7 +5,9 @@
       "Bash(npm run build:*)",
       "Bash(npm install)",
       "Bash(npm run init-knowledge:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.facebook.com)"
     ],
     "deny": [],
     "ask": []

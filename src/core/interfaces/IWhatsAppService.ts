@@ -28,7 +28,7 @@ export interface IWhatsAppService {
   /**
    * Simuler l'indicateur "En train d'écrire"
    */
-  sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean>;
+  sendTypingIndicator(to: string, messageId?: string): Promise<boolean>;
 
   /**
    * Vérifier la santé du service

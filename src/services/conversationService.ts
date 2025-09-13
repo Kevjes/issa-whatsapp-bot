@@ -53,17 +53,17 @@ export class ConversationService {
 
       switch (user.conversationState) {
         case 'greeting':
-          response = await this.handleGreeting(user, userMessage);
+          response = await this.handleGreeting(user, userMessage, messageId);
           break;
         case 'name_collection':
-          response = await this.handleNameCollection(user, userMessage);
+          response = await this.handleNameCollection(user, userMessage, messageId);
           break;
         case 'active':
         case 'idle':
-          response = await this.handleActiveConversation(user, userMessage);
+          response = await this.handleActiveConversation(user, userMessage, messageId);
           break;
         default:
-          response = await this.handleActiveConversation(user, userMessage);
+          response = await this.handleActiveConversation(user, userMessage, messageId);
       }
 
       // Nettoyer le formatage Markdown avant l'envoi
@@ -99,12 +99,12 @@ export class ConversationService {
   /**
    * Gérer la première interaction (salutation)
    */
-  private async handleGreeting(user: User, userMessage: string): Promise<string> {
+  private async handleGreeting(user: User, userMessage: string, messageId: string): Promise<string> {
     try {
       // Si l'utilisateur a déjà un nom enregistré, passer directement à l'état actif
       if (user.name) {
         await this.databaseService.updateUserState(user.id!, 'active');
-        return await this.handleActiveConversation(user, userMessage);
+        return await this.handleActiveConversation(user, userMessage, messageId);
       }
 
       // Vérifier si l'utilisateur donne son nom dans le premier message
@@ -117,7 +117,8 @@ export class ConversationService {
             const greeting = this.aiService.createGreetingMessage(nameMatch);
             return `${greeting}\n\nComment puis-je vous aider aujourd'hui ?`;
           },
-          2000
+          2000,
+          messageId
         );
       }
 
@@ -128,10 +129,11 @@ export class ConversationService {
           await this.databaseService.updateUserState(user.id!, 'name_collection');
           const greeting = this.aiService.createGreetingMessage();
           const nameRequest = this.aiService.createNameRequestMessage();
-          
+
           return `${greeting}\n\n${nameRequest}`;
         },
-        1800 // Durée plus courte pour les messages de bienvenue
+        1800, // Durée plus courte pour les messages de bienvenue
+        messageId
       );
 
     } catch (error) {
@@ -143,7 +145,7 @@ export class ConversationService {
   /**
    * Gérer la collecte du nom
    */
-  private async handleNameCollection(user: User, userMessage: string): Promise<string> {
+  private async handleNameCollection(user: User, userMessage: string, messageId: string): Promise<string> {
     try {
       const name = this.extractNameFromMessage(userMessage) || userMessage.trim();
       
@@ -158,10 +160,11 @@ export class ConversationService {
         async () => {
           // Sauvegarder le nom et passer à l'état actif
           await this.databaseService.updateUserState(user.id!, 'active', name);
-          
+
           return `Ravi de faire votre connaissance, ${name} ! 😊\n\nJe suis ISSA, votre assistant virtuel ROI Takaful. Je suis spécialisé dans les assurances islamiques conformes à la Charia, et je peux aussi vous renseigner sur Royal Onyx Insurance.\n\nComment puis-je vous aider aujourd'hui ?`;
         },
-        2500 // Durée plus courte pour le message de bienvenue
+        2500, // Durée plus courte pour le message de bienvenue
+        messageId
       );
 
     } catch (error) {
@@ -173,7 +176,7 @@ export class ConversationService {
   /**
    * Gérer la conversation active avec l'IA
    */
-  private async handleActiveConversation(user: User, userMessage: string): Promise<string> {
+  private async handleActiveConversation(user: User, userMessage: string, messageId: string): Promise<string> {
     try {
       // Estimer la durée de traitement basée sur la longueur du message
       const estimatedDuration = Math.min(Math.max(userMessage.length * 50, 2000), 8000);
@@ -184,13 +187,13 @@ export class ConversationService {
         async () => {
           // Obtenir l'historique de conversation
           const conversationHistory = await this.databaseService.getConversationHistory(user.id!);
-          
+
           // Rechercher dans la base de connaissances
           const knowledgeContext = await this.knowledgeService.getContextForQuery(userMessage);
-          
+
           // Créer le prompt système avec contexte
           const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
-          
+
           // Générer la réponse avec l'IA
           return await this.aiService.generateResponse(
             userMessage,
@@ -198,7 +201,8 @@ export class ConversationService {
             systemPrompt
           );
         },
-        estimatedDuration
+        estimatedDuration,
+        messageId
       );
 
       if (!aiResponse.success || !aiResponse.content) {
@@ -348,18 +352,19 @@ export class ConversationService {
   private async simulateTypingWhileProcessing<T>(
     phoneNumber: string,
     processingFunction: () => Promise<T>,
-    estimatedDuration: number = 3000
+    estimatedDuration: number = 3000,
+    messageId?: string
   ): Promise<T> {
     // Démarrer l'indicateur "En train d'écrire"
     // Note: nous devons importer le whatsappService mais pour éviter la dépendance circulaire,
     // nous le récupérerons via le container
     const { container, TOKENS } = await import('../core');
     const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE) as {
-      sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean>;
+      sendTypingIndicator(to: string, messageId?: string): Promise<boolean>;
     };
-    
-    // Démarrer l'indicateur de frappe
-    await whatsappService.sendTypingIndicator(phoneNumber, true);
+
+    // Démarrer l'indicateur de frappe avec le messageId si disponible
+    await whatsappService.sendTypingIndicator(phoneNumber, messageId);
     
     try {
       // Calculer un délai minimum réaliste basé sur la longueur du message
@@ -373,8 +378,8 @@ export class ConversationService {
       
       return result;
     } finally {
-      // Toujours arrêter l'indicateur de frappe à la fin
-      await whatsappService.sendTypingIndicator(phoneNumber, false);
+      // L'indicateur de frappe se désactive automatiquement après 25 secondes ou quand on envoie un message
+      // Pas besoin d'appel explicite pour l'arrêter
     }
   }
 

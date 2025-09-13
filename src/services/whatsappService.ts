@@ -158,24 +158,34 @@ export class WhatsAppService implements IWhatsAppService {
   /**
    * Simuler l'indicateur "En train d'écrire"
    */
-  async sendTypingIndicator(to: string, isTyping: boolean): Promise<boolean> {
+  async sendTypingIndicator(to: string, messageId?: string): Promise<boolean> {
     try {
       // Normaliser le numéro de téléphone
       const normalizedPhoneNumber = normalizeCameroonianPhoneNumber(to);
 
       if (!validatePhoneNumber(normalizedPhoneNumber)) {
-        logger.error('Invalid phone number for typing indicator', { 
+        logger.error('Invalid phone number for typing indicator', {
           original: to,
-          normalized: normalizedPhoneNumber 
+          normalized: normalizedPhoneNumber
         });
         return false;
       }
 
+      // Si pas de messageId, on ne peut pas envoyer l'indicateur de frappe selon l'API WhatsApp
+      if (!messageId) {
+        logger.debug('No messageId provided for typing indicator, skipping', {
+          to: normalizedPhoneNumber
+        });
+        return true; // Retourner true pour ne pas interrompre le flow
+      }
+
       const typingData = {
         messaging_product: 'whatsapp' as const,
-        recipient_type: 'individual' as const,
-        to: normalizedPhoneNumber,
-        type: isTyping ? 'typing_on' as const : 'typing_off' as const
+        status: 'read' as const,
+        message_id: messageId,
+        typing_indicator: {
+          type: 'text' as const
+        }
       };
 
       const response = await this.httpClient.post(
@@ -184,15 +194,16 @@ export class WhatsAppService implements IWhatsAppService {
       );
 
       if (response.status === 200) {
-        logger.debug(`Typing indicator ${isTyping ? 'started' : 'stopped'}`, {
-          to: normalizedPhoneNumber
+        logger.debug('Typing indicator sent successfully', {
+          to: normalizedPhoneNumber,
+          messageId
         });
         return true;
       } else {
         logger.warn('Failed to send typing indicator', {
           to: normalizedPhoneNumber,
           status: response.status,
-          isTyping
+          messageId
         });
         return false;
       }
@@ -200,7 +211,7 @@ export class WhatsAppService implements IWhatsAppService {
     } catch (error: unknown) {
       logger.error('Error sending typing indicator', {
         to,
-        isTyping,
+        messageId,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
       return false;
