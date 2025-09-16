@@ -213,33 +213,49 @@ INSTRUCTIONS IMPORTANTES :
    * Créer un message de salutation personnalisé
    */
   createGreetingMessage(userName?: string): string {
-    const greetings = [
-      `Bonjour ! Je suis ISSA, votre assistant virtuel ROI Takaful. Comment allez-vous aujourd'hui ?`,
-      `Salut ! C'est ISSA, votre conseiller virtuel en assurances islamiques chez ROI Takaful. Comment puis-je vous aider ?`,
-      `Hello ! ISSA à votre service, assistant de ROI Takaful pour vos assurances conformes à la Charia. J'espère que vous passez une excellente journée !`
-    ];
-
-    const greeting = greetings[Math.floor(Math.random() * greetings.length)];
-
     if (userName) {
-      return greeting.replace('!', ` ${userName} !`);
+      // Messages de salutation quand on connaît déjà le nom
+      const personalizedGreetings = [
+        `Salam ${userName} 👋\nAlhamdulillah, quel plaisir de vous revoir !`,
+        `Bonjour ${userName} ! 🌟\nJe suis ravi de poursuivre notre conversation.`,
+        `Assalam alaykum ${userName} 🌙\nComment allez-vous aujourd'hui ?`
+      ];
+      return personalizedGreetings[Math.floor(Math.random() * personalizedGreetings.length)];
     }
 
-    return greeting;
+    // Message de première salutation avec demande de nom (comme dans votre exemple)
+    return `Salam 👋 Je suis ISSA, votre compagnon digital chez ROI Takaful 🌙.
+
+Je suis là pour vous écouter, vous guider et répondre à vos questions.
+
+Avant de commencer, comment puis-je vous appeler ? ✍️
+(J'aime bien savoir avec qui je discute, ça rend la conversation plus conviviale 😉)`;
   }
 
   /**
-   * Créer un message pour demander le nom
+   * Créer un message pour demander le nom (maintenant intégré dans createGreetingMessage)
    */
   createNameRequestMessage(): string {
-    const requests = [
-      "Pour mieux vous accompagner, comment puis-je vous appeler ?",
-      "J'aimerais personnaliser notre conversation. Quel est votre prénom ?",
-      "Comment souhaitez-vous que je vous appelle ?",
-      "Pour rendre notre échange plus chaleureux, dites-moi comment vous vous appelez ?"
-    ];
+    // Cette méthode est maintenant obsolète car le message de demande de nom
+    // est intégré directement dans createGreetingMessage() pour correspondre à votre exemple
+    return "Comment puis-je vous appeler ?";
+  }
 
-    return requests[Math.floor(Math.random() * requests.length)];
+  /**
+   * Créer le message de bienvenue personnalisé après collecte du nom
+   */
+  createWelcomeAfterNameMessage(userName: string): string {
+    return `Enchanté ${userName} 🤗 !
+Alhamdulillah, c'est un vrai plaisir de faire votre connaissance.
+In shâ Allâh, je serai pour vous un compagnon utile et bienveillant tout au long de notre échange.`;
+  }
+
+  /**
+   * Créer le message de suivi pour relancer naturellement la conversation
+   */
+  createFollowUpMessage(userName: string): string {
+    return `Alors ${userName}, dites-moi, qu'aimeriez-vous aborder aujourd'hui ?
+Vous pouvez poser votre question librement, je vous réponds directement.`;
   }
 
   /**

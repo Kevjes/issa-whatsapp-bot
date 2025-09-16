@@ -127,10 +127,8 @@ export class ConversationService {
         user.phoneNumber,
         async () => {
           await this.databaseService.updateUserState(user.id!, 'name_collection');
-          const greeting = this.aiService.createGreetingMessage();
-          const nameRequest = this.aiService.createNameRequestMessage();
-
-          return `${greeting}\n\n${nameRequest}`;
+          // Le message de salutation intègre maintenant directement la demande de nom
+          return this.aiService.createGreetingMessage();
         },
         1800, // Durée plus courte pour les messages de bienvenue
         messageId
@@ -161,9 +159,15 @@ export class ConversationService {
           // Sauvegarder le nom et passer à l'état actif
           await this.databaseService.updateUserState(user.id!, 'active', name);
 
-          return `Ravi de faire votre connaissance, ${name} ! 😊\n\nJe suis ISSA, votre assistant virtuel ROI Takaful. Je suis spécialisé dans les assurances islamiques conformes à la Charia, et je peux aussi vous renseigner sur Royal Onyx Insurance.\n\nComment puis-je vous aider aujourd'hui ?`;
+          // Premier message de bienvenue personnalisé
+          const welcomeMessage = this.aiService.createWelcomeAfterNameMessage(name);
+
+          // Programmer l'envoi du message de suivi de manière asynchrone
+          this.scheduleFollowUpMessage(user, name);
+
+          return welcomeMessage;
         },
-        2500, // Durée plus courte pour le message de bienvenue
+        2500,
         messageId
       );
 
@@ -393,6 +397,98 @@ export class ConversationService {
     const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
     
     await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Programmer l'envoi du message de suivi après collecte du nom
+   */
+  private scheduleFollowUpMessage(user: User, userName: string): void {
+    // Programmer l'envoi du message de suivi après un délai
+    setTimeout(async () => {
+      try {
+        // Attendre un délai naturel puis envoyer l'indicateur de frappe
+        const { container, TOKENS } = await import('../core');
+        const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE) as {
+          sendMessage(to: string, message: string): Promise<boolean>;
+          sendTypingIndicator(to: string): Promise<boolean>;
+        };
+
+        // Simuler l'écriture du message de suivi
+        await whatsappService.sendTypingIndicator(user.phoneNumber);
+
+        // Attendre un peu pour simuler l'écriture
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+        // Envoyer le message de suivi
+        const followUpMessage = this.aiService.createFollowUpMessage(userName);
+        const cleanMessage = this.cleanMarkdownForWhatsApp(followUpMessage);
+
+        await this.databaseService.saveConversationMessage({
+          userId: user.id!,
+          phoneNumber: user.phoneNumber,
+          messageId: `followup_${Date.now()}`,
+          content: cleanMessage,
+          messageType: 'bot',
+          timestamp: new Date().toISOString(),
+          aiProvider: this.aiService.getConfig().provider
+        });
+
+        await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
+
+        logger.debug('Message de suivi envoyé', {
+          phoneNumber: user.phoneNumber,
+          userName
+        });
+      } catch (error) {
+        logger.error('Erreur lors de l\'envoi du message de suivi', {
+          error,
+          phoneNumber: user.phoneNumber,
+          userName
+        });
+      }
+    }, 2000); // Délai de 2 secondes après le premier message
+  }
+
+  /**
+   * Envoyer un message du bot et le sauvegarder en base
+   */
+  private async sendBotMessage(user: User, message: string, messageId: string): Promise<void> {
+    try {
+      // Nettoyer le formatage Markdown avant l'envoi
+      const cleanMessage = this.cleanMarkdownForWhatsApp(message);
+
+      // Sauvegarder le message en base de données
+      await this.databaseService.saveConversationMessage({
+        userId: user.id!,
+        phoneNumber: user.phoneNumber,
+        messageId,
+        content: cleanMessage,
+        messageType: 'bot',
+        timestamp: new Date().toISOString(),
+        aiProvider: this.aiService.getConfig().provider
+      });
+
+      // Envoyer le message via WhatsApp
+      const { container, TOKENS } = await import('../core');
+      const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE) as {
+        sendMessage(to: string, message: string): Promise<boolean>;
+      };
+
+      await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
+
+      logger.debug('Message bot envoyé', {
+        phoneNumber: user.phoneNumber,
+        messageId,
+        messageLength: cleanMessage.length
+      });
+    } catch (error) {
+      logger.error('Erreur lors de l\'envoi du message bot', {
+        error,
+        phoneNumber: user.phoneNumber,
+        messageId
+      });
+      throw error;
+    }
   }
 
   /**
