@@ -35,8 +35,22 @@ export class ConversationService {
       });
 
       // Obtenir ou créer l'utilisateur
-      const user = await this.databaseService.getOrCreateUser(phoneNumber);
-      
+      let user = await this.databaseService.getOrCreateUser(phoneNumber);
+
+      // Si l'utilisateur n'a pas de nom mais n'est pas dans l'état greeting, le remettre en greeting
+      if (!user.name && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
+        await this.databaseService.updateUserState(user.id!, 'greeting');
+        user = { ...user, conversationState: 'greeting' };
+        logger.info('Utilisateur sans nom remis en état greeting', { userId: user.id, phoneNumber });
+      }
+
+      // Détecter les mots de salutation pour réinitialiser une conversation même si l'utilisateur a un nom
+      if (this.isGreetingMessage(userMessage) && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
+        await this.databaseService.updateUserState(user.id!, 'greeting');
+        user = { ...user, conversationState: 'greeting' };
+        logger.info('Conversation réinitialisée suite à message de salutation', { userId: user.id, phoneNumber });
+      }
+
       // Sauvegarder le message utilisateur
       await this.databaseService.saveConversationMessage({
         userId: user.id!,
@@ -272,6 +286,20 @@ export class ConversationService {
     ];
 
     return invalidPatterns.some(pattern => pattern.test(name));
+  }
+
+  /**
+   * Vérifier si un message est un message de salutation
+   */
+  private isGreetingMessage(message: string): boolean {
+    const greetingPatterns = [
+      /^(salut|bonjour|bonsoir|hello|hi|salam|assalam|peace)\s*$/i,
+      /^(salut|bonjour|bonsoir|hello|hi|salam)\s*[!.]*\s*$/i,
+      /^(assalam\s*alaykum|assalamou\s*alaykoum|salam\s*alaykoum)\s*[!.]*\s*$/i
+    ];
+
+    const cleanMessage = message.trim();
+    return greetingPatterns.some(pattern => pattern.test(cleanMessage));
   }
 
   /**
