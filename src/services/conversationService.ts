@@ -48,6 +48,8 @@ export class ConversationService {
       if (this.isGreetingMessage(userMessage) && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
         await this.databaseService.updateUserState(user.id!, 'greeting');
         user = { ...user, conversationState: 'greeting' };
+        // Marquer que c'est une réinitialisation par salutation
+        (user as any).isGreetingReset = true;
         logger.info('Conversation réinitialisée suite à message de salutation', { userId: user.id, phoneNumber });
       }
 
@@ -115,12 +117,6 @@ export class ConversationService {
    */
   private async handleGreeting(user: User, userMessage: string, messageId: string): Promise<string> {
     try {
-      // Si l'utilisateur a déjà un nom enregistré, passer directement à l'état actif
-      if (user.name) {
-        await this.databaseService.updateUserState(user.id!, 'active');
-        return await this.handleActiveConversation(user, userMessage, messageId);
-      }
-
       // Vérifier si l'utilisateur donne son nom dans le premier message
       const nameMatch = this.extractNameFromMessage(userMessage);
       if (nameMatch) {
@@ -136,15 +132,31 @@ export class ConversationService {
         );
       }
 
-      // Sinon, demander le nom avec simulation de frappe
+      // Si c'est une réinitialisation par salutation, toujours demander le nom
+      // même si l'utilisateur en a déjà un (pour humaniser l'échange)
+      if ((user as any).isGreetingReset || !user.name) {
+        return await this.simulateTypingWhileProcessing(
+          user.phoneNumber,
+          async () => {
+            await this.databaseService.updateUserState(user.id!, 'name_collection');
+            // Le message de salutation intègre maintenant directement la demande de nom
+            return this.aiService.createGreetingMessage();
+          },
+          1800, // Durée plus courte pour les messages de bienvenue
+          messageId
+        );
+      }
+
+      // Si l'utilisateur a déjà un nom et ce n'est pas une réinitialisation,
+      // on utilise le message de salutation personnalisé
       return await this.simulateTypingWhileProcessing(
         user.phoneNumber,
         async () => {
-          await this.databaseService.updateUserState(user.id!, 'name_collection');
-          // Le message de salutation intègre maintenant directement la demande de nom
-          return this.aiService.createGreetingMessage();
+          await this.databaseService.updateUserState(user.id!, 'active');
+          // Utiliser le message de salutation personnalisé pour utilisateur connu
+          return this.aiService.createGreetingMessage(user.name);
         },
-        1800, // Durée plus courte pour les messages de bienvenue
+        1800,
         messageId
       );
 
