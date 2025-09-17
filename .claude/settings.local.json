@@ -7,7 +7,9 @@
       "Bash(npm run init-knowledge:*)",
       "Bash(node:*)",
       "WebSearch",
-      "WebFetch(domain:developers.facebook.com)"
+      "WebFetch(domain:developers.facebook.com)",
+      "Read(//c/Users/kevin.tene.KIMIA.000/Downloads/**)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

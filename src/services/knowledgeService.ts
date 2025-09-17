@@ -27,7 +27,10 @@ export class KnowledgeService {
 
       // Charger les données d'identité ISSA
       await this.loadISSAIdentityData();
-      
+
+      // Charger les définitions Takaful
+      await this.loadTakafulDefinitionData();
+
       // Charger les données ROI et ROI Takaful
       await this.loadROIData();
       await this.loadROITakafulData();
@@ -109,6 +112,47 @@ export class KnowledgeService {
       logger.info('Données ROI Takaful chargées avec succès');
     } catch (error) {
       logger.error('Erreur lors du chargement des données ROI Takaful', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger les définitions Takaful
+   */
+  private async loadTakafulDefinitionData(): Promise<void> {
+    try {
+      const definitionFilePath = path.join(process.cwd(), 'docs', 'definition_takaful.tx');
+
+      if (!fs.existsSync(definitionFilePath)) {
+        logger.warn('Fichier definition_takaful.tx introuvable', { path: definitionFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(definitionFilePath, 'utf8');
+
+      // Vérifier si le fichier a du contenu
+      if (!content.trim()) {
+        logger.info('Fichier definition_takaful.tx vide, ignoré pour le moment');
+        return;
+      }
+
+      // Ajouter l'entrée des définitions Takaful
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_definition',
+        title: 'Définitions et Concepts Takaful',
+        content: content,
+        keywords: [
+          'définition takaful', 'concepts takaful', 'principes takaful',
+          'assurance islamique', 'finance islamique', 'qu\'est-ce que takaful',
+          'fonctionnement takaful', 'différence assurance classique',
+          'termes techniques', 'vocabulaire takaful', 'glossaire'
+        ],
+        isActive: true
+      });
+
+      logger.info('Définitions Takaful chargées avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement des définitions Takaful', { error });
       throw error;
     }
   }
@@ -316,15 +360,20 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
       // ROI général
       'roi', 'royal onyx', 'assurance', 'automobile', 'santé', 'habitation',
       'voyage', 'responsabilité', 'multirisques', 'agences', 'contact',
-      
+
       // ROI Takaful
       'takaful', 'islamique', 'halal', 'charia', 'hajj', 'wakalah',
       'moudharaba', 'sharia board', 'conformité',
-      
+
+      // Définitions et concepts Takaful
+      'définition', 'concepts', 'principes', 'qu\'est-ce que',
+      'fonctionnement', 'différence', 'termes', 'vocabulaire', 'glossaire',
+      'finance islamique', 'assurance classique',
+
       // Services
       'accidents', 'evacuation', 'incendie', 'chantier', 'crédit',
       'bétail', 'agricole', 'marchandises', 'équipements',
-      
+
       // Localisation
       'douala', 'yaoundé', 'cameroun', 'bafoussam', 'maroua', 'garoua'
     ];
@@ -339,7 +388,9 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
   isTakafulQuery(query: string): boolean {
     const takafulKeywords = [
       'takaful', 'islamique', 'halal', 'charia', 'hajj', 'wakalah',
-      'moudharaba', 'sharia', 'religieux', 'conforme', 'islam'
+      'moudharaba', 'sharia', 'religieux', 'conforme', 'islam',
+      'définition takaful', 'qu\'est-ce que takaful', 'concepts takaful',
+      'finance islamique', 'assurance islamique'
     ];
 
     const queryLower = query.toLowerCase();

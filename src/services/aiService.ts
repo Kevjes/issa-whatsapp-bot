@@ -43,11 +43,41 @@ export class AIService {
       // Construire les messages pour l'IA
       const messages = this.buildMessages(userMessage, conversationHistory, systemPrompt);
 
+      let aiResponse: AIResponse;
       if (this.aiConfig.provider === 'openai') {
-        return await this.callOpenAI(messages);
+        aiResponse = await this.callOpenAI(messages);
       } else {
-        return await this.callDeepSeek(messages);
+        aiResponse = await this.callDeepSeek(messages);
       }
+
+      // Valider la réponse
+      if (aiResponse.success && aiResponse.content) {
+        const validation = this.validateResponse(aiResponse.content, systemPrompt || '');
+
+        if (!validation.isValid) {
+          logger.warn('Réponse IA rejetée par validation', {
+            reason: validation.reason,
+            responsePreview: aiResponse.content.substring(0, 100)
+          });
+
+          // Retourner une réponse sécurisée
+          return {
+            success: true,
+            content: `Je ne dispose pas de cette information dans ma base de connaissances actuelle.
+
+📍 Pour obtenir une réponse précise et officielle, je vous invite à :
+
+🔸 Consulter notre site web : www.roitakaful.com
+🔸 Contacter notre service client : +237 691 100 575
+🔸 Nous écrire : contact@roitakaful.com
+
+Je reste à votre disposition pour toute question sur nos produits et services documentés !`,
+            provider: this.aiConfig.provider
+          };
+        }
+      }
+
+      return aiResponse;
 
     } catch (error) {
       logger.error('Erreur lors de la génération de réponse IA', {
@@ -187,24 +217,37 @@ COMPORTEMENT ATTENDU :
 - Utilise le prénom de l'utilisateur quand c'est approprié${userName ? ` (${userName})` : ''}
 - Sois bienveillant, patient et à l'écoute
 - Pose des questions de clarification si nécessaire
-- Redirige vers le site web si et seulement si tu n'as pas d'informations précises
 
 FORMATAGE IMPORTANT :
 - N'utilise JAMAIS de Markdown (pas de *, **, #, ###, →, ---, etc.)
 - Utilise uniquement du texte simple avec des emojis
 - Pour structurer : utilise des espaces, des retours à la ligne et des emojis
-- Exemple : ✅ au lieu de *, 🔹 pour les listes ou - pour faire plus naturel, 📍 pour les points importants (pas forcement 📍 car sa doit etre le plus naturel possible)
+- Exemple : ✅ au lieu de *, 🔹 pour les listes ou - pour faire plus naturel, 📍 pour les points importants
+
+RÈGLES STRICTES DE RÉPONSE :
+🚨 TRÈS IMPORTANT - RÈGLES ABSOLUES :
+1. Tu DOIS EXCLUSIVEMENT utiliser les informations fournies dans "CONNAISSANCES DISPONIBLES" ci-dessous
+2. Tu NE DOIS JAMAIS inventer, supposer ou extrapoler des informations
+3. Si l'information n'est PAS dans les connaissances fournies, tu DOIS dire : "Je ne dispose pas de cette information dans ma base de connaissances actuelle"
+4. Tu NE DOIS PAS donner d'informations générales ou supposées même si elles semblent logiques
+5. SEULES les informations exactes de la base de connaissances peuvent être utilisées
 
 CONNAISSANCES DISPONIBLES :
-${knowledgeContext || 'Informations générales sur ROI et ROI Takaful disponibles.'}
+${knowledgeContext || 'Aucune information spécifique n\'est disponible pour cette requête.'}
 
-INSTRUCTIONS IMPORTANTES :
-- Tu es avant tout l'assistant de ROI Takaful (assurances islamiques)
-- Tu peux répondre aux questions sur Royal Onyx mais limite-toi à ce que tu sais
-- Pour ROI Takaful, tu dois être capable de répondre à toutes les questions sur les produits et services
-- Si tu ne peux pas répondre précisément, dirige vers www.roitakaful.com ou www.royalonyx.cm
-- Reste toujours dans ton rôle d'assistant de ROI Takaful
-- Sois empathique et professionnel dans toutes tes interactions`;
+PROCÉDURE DE RÉPONSE :
+1. Vérifier si l'information demandée est dans les CONNAISSANCES DISPONIBLES
+2. Si OUI : répondre avec les informations exactes de la base
+3. Si NON : dire "Je ne dispose pas de cette information" et rediriger vers :
+   - www.roitakaful.com pour les questions ROI Takaful
+   - www.royalonyx.cm pour les questions Royal Onyx Insurance
+   - +237 691 100 575 pour le service client
+
+INTERDICTIONS ABSOLUES :
+❌ Ne jamais inventer de valeurs d'entreprise
+❌ Ne jamais supposer des dates ou des chiffres
+❌ Ne jamais donner d'informations "générales" sur l'assurance
+❌ Ne jamais extrapoler au-delà des connaissances fournies`;
 
     return basePrompt;
   }
@@ -269,6 +312,40 @@ Vous pouvez poser votre question librement, je vous réponds directement.`;
 📞 Service client : +237 691 100 575
 
 Notre équipe sera ravie de vous accompagner personnellement !`;
+  }
+
+  /**
+   * Valider la réponse de l'IA pour s'assurer qu'elle respecte les règles
+   */
+  private validateResponse(response: string, knowledgeContext: string): { isValid: boolean; reason?: string } {
+    // Mots interdits qui indiquent une invention d'informations
+    const forbiddenPhrases = [
+      'généralement', 'habituellement', 'en général', 'typiquement',
+      'probablement', 'il est possible que', 'on peut supposer',
+      'les valeurs sont souvent', 'comme la plupart des entreprises'
+    ];
+
+    // Vérifier la présence de phrases interdites
+    const responseLength = response.toLowerCase();
+    for (const phrase of forbiddenPhrases) {
+      if (responseLength.includes(phrase)) {
+        return {
+          isValid: false,
+          reason: `Réponse contient une phrase interdite: "${phrase}"`
+        };
+      }
+    }
+
+    // Si pas de contexte de connaissances et que la réponse est longue et détaillée
+    if ((!knowledgeContext || knowledgeContext.includes('Aucune information spécifique'))
+        && response.length > 200 && !response.includes('Je ne dispose pas')) {
+      return {
+        isValid: false,
+        reason: 'Réponse trop détaillée sans contexte de connaissances'
+      };
+    }
+
+    return { isValid: true };
   }
 
   /**
