@@ -384,23 +384,31 @@ export class DatabaseService implements IDatabaseService {
     await this.ensureInitialized();
 
     try {
-      // Recherche dans les mots-clés et le contenu
+      // Recherche dans les mots-clés (JSON) et le contenu
       const rows = await this.allQuery(
-        `SELECT * FROM knowledge_base 
-         WHERE is_active = 1 
-         AND (keywords LIKE ? OR content LIKE ? OR title LIKE ?)
-         ORDER BY 
-           CASE 
+        `SELECT * FROM knowledge_base
+         WHERE is_active = 1
+         AND (
+           keywords LIKE ?
+           OR content LIKE ?
+           OR title LIKE ?
+           OR category LIKE ?
+         )
+         ORDER BY
+           CASE
              WHEN title LIKE ? THEN 1
              WHEN keywords LIKE ? THEN 2
-             ELSE 3
+             WHEN category LIKE ? THEN 3
+             ELSE 4
            END`,
         [
+          `%"${query}"%`,  // Recherche dans le JSON des mots-clés
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
-          `%${query}%`
+          `%"${query}"%`,  // Pour la priorité des mots-clés
+          `%${query}%`     // Pour la priorité de la catégorie
         ]
       );
 

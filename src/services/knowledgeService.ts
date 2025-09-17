@@ -331,19 +331,54 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
    */
   async getContextForQuery(query: string): Promise<string> {
     try {
-      const results = await this.search(query.toLowerCase());
-      
+      const searchQuery = query.toLowerCase();
+      logger.info('Recherche dans la base de connaissances', { originalQuery: query, searchQuery });
+
+      // Essayer plusieurs stratégies de recherche
+      let results = await this.search(searchQuery);
+
+      // Si pas de résultats, essayer avec des mots individuels
       if (results.length === 0) {
+        const words = searchQuery.split(/\s+/).filter(word => word.length > 2);
+        logger.info('Recherche avec mots individuels', { words });
+
+        for (const word of words) {
+          const wordResults = await this.search(word);
+          results = results.concat(wordResults);
+          if (results.length > 0) break; // Arrêter dès qu'on trouve quelque chose
+        }
+
+        // Supprimer les doublons
+        const uniqueResults = results.filter((result, index, self) =>
+          index === self.findIndex(r => r.id === result.id)
+        );
+        results = uniqueResults;
+      }
+
+      logger.info('Résultats de recherche', {
+        query: searchQuery,
+        resultCount: results.length,
+        resultTitles: results.map(r => r.title)
+      });
+
+      if (results.length === 0) {
+        logger.warn('Aucun résultat trouvé', { query: searchQuery });
         return 'Aucune information spécifique trouvée dans la base de connaissances.';
       }
 
       // Limiter à 3 résultats les plus pertinents
       const topResults = results.slice(0, 3);
-      
+
       let context = 'Informations pertinentes :\n\n';
       for (const result of topResults) {
         context += `**${result.title}**\n${result.content}\n\n`;
       }
+
+      logger.info('Contexte généré', {
+        query: searchQuery,
+        contextLength: context.length,
+        resultTitles: topResults.map(r => r.title)
+      });
 
       return context;
     } catch (error) {
