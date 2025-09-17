@@ -134,8 +134,8 @@ export class ConversationService {
 
       // Si c'est une réinitialisation par salutation, toujours demander le nom
       // même si l'utilisateur en a déjà un (pour humaniser l'échange)
-      if ((user as any).isGreetingReset || !user.name) {
-        // Message statique - AUCUNE IA utilisée ici
+      if ((user as any).isGreetingReset) {
+        // Message statique - AUCUNE IA utilisée ici - TOUJOURS demander le nom en cas de réinitialisation
         const staticGreetingMessage = `Salam 👋 Je suis ISSA, votre compagnon digital chez ROI Takaful 🌙.
 
 Je suis là pour vous écouter, vous guider et répondre à vos questions.
@@ -151,6 +151,26 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             return staticGreetingMessage;
           },
           1800, // Durée plus courte pour les messages de bienvenue
+          messageId
+        );
+      }
+
+      // Si l'utilisateur n'a pas de nom (nouveau utilisateur)
+      if (!user.name) {
+        const staticGreetingMessage = `Salam 👋 Je suis ISSA, votre compagnon digital chez ROI Takaful 🌙.
+
+Je suis là pour vous écouter, vous guider et répondre à vos questions.
+
+Avant de commencer, comment puis-je vous appeler ? ✍️
+(J'aime bien savoir avec qui je discute, ça rend la conversation plus conviviale 😉)`;
+
+        return await this.simulateTypingWhileProcessing(
+          user.phoneNumber,
+          async () => {
+            await this.databaseService.updateUserState(user.id!, 'name_collection');
+            return staticGreetingMessage;
+          },
+          1800,
           messageId
         );
       }
