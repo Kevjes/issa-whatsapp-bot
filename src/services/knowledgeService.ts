@@ -428,20 +428,24 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
         results = uniqueResults;
       }
 
+      // Re-ranker les résultats en priorisant ceux dont le titre contient les mots-clés
+      const keywords = this.queryNormalizer.extractKeywords(searchQuery);
+      const rerankedResults = this.rerankByTitleMatch(results, keywords);
+
       logger.info('Résultats de recherche', {
         query: searchQuery,
-        resultCount: results.length,
-        resultTitles: results.map(r => r.title)
+        resultCount: rerankedResults.length,
+        resultTitles: rerankedResults.map(r => r.title)
       });
 
       let context: string;
 
-      if (results.length === 0) {
+      if (rerankedResults.length === 0) {
         logger.warn('Aucun résultat trouvé', { query: searchQuery });
         context = 'Aucune information spécifique trouvée dans la base de connaissances.';
       } else {
-        // Limiter à 3 résultats les plus pertinents
-        const topResults = results.slice(0, 3);
+        // Limiter à 5 résultats les plus pertinents (augmenté de 3 à 5)
+        const topResults = rerankedResults.slice(0, 5);
 
         context = 'Informations pertinentes :\n\n';
         for (const result of topResults) {
@@ -468,6 +472,23 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
       logger.error('Erreur lors de la recherche de contexte', { error, query });
       return 'Erreur lors de la récupération des informations.';
     }
+  }
+
+  /**
+   * Re-ranker les résultats en priorisant ceux dont le titre contient les mots-clés
+   */
+  private rerankByTitleMatch(results: KnowledgeBase[], keywords: string[]): KnowledgeBase[] {
+    return results.sort((a, b) => {
+      const titleA = a.title.toLowerCase();
+      const titleB = b.title.toLowerCase();
+
+      // Compter combien de mots-clés sont dans chaque titre
+      const matchesA = keywords.filter(kw => titleA.includes(kw)).length;
+      const matchesB = keywords.filter(kw => titleB.includes(kw)).length;
+
+      // Trier par nombre de correspondances décroissant
+      return matchesB - matchesA;
+    });
   }
 
   /**
