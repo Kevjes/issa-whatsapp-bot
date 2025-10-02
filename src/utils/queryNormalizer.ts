@@ -180,15 +180,21 @@ export class QueryNormalizer {
 
   /**
    * Créer une requête FTS5 optimisée
-   * Combine les termes avec OR pour recherche large
+   * Utilise uniquement les termes clés sans expansion excessive
    */
   toFTS5Query(query: string): string {
-    const expanded = this.expand(query);
+    // Utiliser seulement les mots-clés extraits et leurs stems
+    const keywords = this.extractKeywords(query);
+    const stems = keywords.map(w => this.stem(w));
 
-    // Limiter à 20 termes pour éviter requêtes trop larges
-    const limitedExpanded = expanded.slice(0, 20);
+    // Combiner keywords et stems, enlever les doublons
+    const terms = [...new Set([...keywords, ...stems])];
 
-    return limitedExpanded.join(' OR ');
+    // Limiter à 10 termes pour recherche plus ciblée
+    const limitedTerms = terms.slice(0, 10);
+
+    // Retourner les termes séparés par des espaces (recherche AND implicite)
+    return limitedTerms.join(' ');
   }
 
   /**

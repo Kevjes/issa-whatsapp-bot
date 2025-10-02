@@ -446,12 +446,12 @@ export class DatabaseService implements IDatabaseService {
       // Utiliser FTS5 pour recherche optimisée avec BM25 ranking
       const rows = await this.allQuery(
         `SELECT kb.*,
-                bm25(fts) as relevance_score
-         FROM knowledge_fts fts
-         JOIN knowledge_base kb ON kb.id = fts.rowid
+                bm25(knowledge_fts) as relevance_score
+         FROM knowledge_fts
+         JOIN knowledge_base kb ON kb.id = knowledge_fts.rowid
          WHERE knowledge_fts MATCH ?
          AND kb.is_active = 1
-         ORDER BY bm25(fts)
+         ORDER BY bm25(knowledge_fts)
          LIMIT 10`,
         [cleanQuery]
       );

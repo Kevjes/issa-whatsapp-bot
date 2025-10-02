@@ -103,3 +103,4 @@ Multiple rate limiting strategies implemented:
 - CORS configuration
 - Request body size limits (10mb)
 - Rate limiting per user for conversation endpoints
+- acces au server : ssh webhost@172.28.20.2 -p 2559 et le code est dans le dossier /var/www/html/issa/
