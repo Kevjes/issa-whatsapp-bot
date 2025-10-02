@@ -1,5 +1,6 @@
 import { KnowledgeBase } from '../types';
 import { DatabaseService } from './databaseService';
+import { VectorSearchService } from './vectorSearchService';
 import { logger } from '../utils/logger';
 import { QueryNormalizer } from '../utils/queryNormalizer';
 import * as fs from 'fs';
@@ -10,6 +11,8 @@ export class KnowledgeService {
   private databaseService: DatabaseService;
   private cache: NodeCache;
   private queryNormalizer: QueryNormalizer;
+  private vectorSearch: VectorSearchService;
+  private useVectorSearch: boolean = false;
 
   constructor(databaseService: DatabaseService) {
     this.databaseService = databaseService;
@@ -25,10 +28,14 @@ export class KnowledgeService {
     // Initialiser le normalisateur de requêtes
     this.queryNormalizer = new QueryNormalizer();
 
-    logger.info('KnowledgeService initialisé avec cache et normalisation', {
+    // Initialiser le service de recherche vectorielle
+    this.vectorSearch = new VectorSearchService();
+
+    logger.info('KnowledgeService initialisé avec cache, normalisation et vectors', {
       ttl: '3600s',
       maxKeys: 1000,
-      normalizer: 'QueryNormalizer avec stemming français'
+      normalizer: 'QueryNormalizer avec stemming français',
+      vectorSearch: 'VectorSearchService (lazy init)'
     });
   }
 
@@ -501,6 +508,142 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
     logger.info('Cache pré-chargé avec succès', {
       stats: this.getCacheStats()
     });
+  }
+
+  /**
+   * Activer la recherche vectorielle (initialise et pré-calcule les embeddings)
+   */
+  async enableVectorSearch(): Promise<void> {
+    try {
+      logger.info('Activation de la recherche vectorielle...');
+
+      // Initialiser le service vectoriel
+      await this.vectorSearch.initialize();
+
+      // Récupérer toutes les entrées pour pré-calcul
+      const allEntries = await this.databaseService.searchKnowledgeBase('');
+
+      if (allEntries.length > 0) {
+        // Pré-calculer les embeddings
+        await this.vectorSearch.precomputeEmbeddings(allEntries);
+        this.useVectorSearch = true;
+
+        logger.info('Recherche vectorielle activée', {
+          entriesIndexed: allEntries.length,
+          stats: this.vectorSearch.getStats()
+        });
+      } else {
+        logger.warn('Aucune entrée à indexer pour la recherche vectorielle');
+      }
+
+    } catch (error) {
+      logger.error('Erreur activation recherche vectorielle', { error });
+      this.useVectorSearch = false;
+    }
+  }
+
+  /**
+   * Recherche hybride : combine FTS5, normalisation et vectors
+   */
+  async searchHybrid(query: string, topK: number = 5): Promise<KnowledgeBase[]> {
+    try {
+      // Récupérer toutes les entrées
+      const allEntries = await this.databaseService.searchKnowledgeBase('');
+
+      // 1. Recherche FTS5 + normalisation (Phase 1 + 2)
+      const ftsResults = await this.search(query);
+
+      // 2. Recherche vectorielle sémantique (Phase 3)
+      let vectorResults: Array<{ entry: KnowledgeBase; score: number }> = [];
+
+      if (this.useVectorSearch && this.vectorSearch.isReady()) {
+        vectorResults = await this.vectorSearch.searchSemantic(query, allEntries, topK * 2);
+      }
+
+      // 3. Re-ranking avec Reciprocal Rank Fusion (RRF)
+      const combined = this.rerankResults(ftsResults, vectorResults, topK);
+
+      logger.debug('Recherche hybride terminée', {
+        query,
+        ftsCount: ftsResults.length,
+        vectorCount: vectorResults.length,
+        finalCount: combined.length
+      });
+
+      return combined;
+
+    } catch (error) {
+      logger.error('Erreur recherche hybride', { error, query });
+      // Fallback sur recherche normale
+      return await this.search(query);
+    }
+  }
+
+  /**
+   * Re-ranking avec Reciprocal Rank Fusion (RRF)
+   * Combine les scores de plusieurs sources de recherche
+   */
+  private rerankResults(
+    ftsResults: KnowledgeBase[],
+    vectorResults: Array<{ entry: KnowledgeBase; score: number }>,
+    topK: number
+  ): KnowledgeBase[] {
+    const k = 60; // Constante RRF standard
+    const scores = new Map<number, number>();
+
+    // Score FTS (basé sur le rang)
+    ftsResults.forEach((entry, rank) => {
+      if (entry.id) {
+        const rrfScore = 1 / (k + rank + 1);
+        scores.set(entry.id, (scores.get(entry.id) || 0) + rrfScore);
+      }
+    });
+
+    // Score vectoriel (basé sur le rang ET la similarité cosinus)
+    vectorResults.forEach((result, rank) => {
+      if (result.entry.id) {
+        // RRF score avec boost de similarité
+        const rrfScore = 1 / (k + rank + 1);
+        const similarityBoost = result.score; // 0-1
+        const combinedScore = rrfScore * (1 + similarityBoost);
+
+        scores.set(
+          result.entry.id,
+          (scores.get(result.entry.id) || 0) + combinedScore
+        );
+      }
+    });
+
+    // Créer un index des entrées par ID
+    const entriesById = new Map<number, KnowledgeBase>();
+    [...ftsResults, ...vectorResults.map(r => r.entry)].forEach(entry => {
+      if (entry.id && !entriesById.has(entry.id)) {
+        entriesById.set(entry.id, entry);
+      }
+    });
+
+    // Trier par score combiné
+    const ranked = Array.from(scores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([id]) => entriesById.get(id))
+      .filter((entry): entry is KnowledgeBase => entry !== undefined);
+
+    logger.debug('Re-ranking terminé', {
+      inputFts: ftsResults.length,
+      inputVector: vectorResults.length,
+      uniqueEntries: scores.size,
+      output: ranked.length
+    });
+
+    return ranked;
+  }
+
+  /**
+   * Obtenir les statistiques de la recherche vectorielle
+   */
+  getVectorSearchStats(): ReturnType<VectorSearchService['getStats']> {
+    return this.vectorSearch.getStats();
   }
 
   /**

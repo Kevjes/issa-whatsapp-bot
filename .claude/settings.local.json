@@ -9,7 +9,9 @@
       "WebSearch",
       "WebFetch(domain:developers.facebook.com)",
       "Read(//c/Users/kevin.tene.KIMIA.000/Downloads/**)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(npm install:*)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
