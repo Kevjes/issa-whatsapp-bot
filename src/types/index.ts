@@ -237,6 +237,7 @@ export interface User {
   lastInteraction?: string;
   isActive: boolean;
   conversationState: 'greeting' | 'name_collection' | 'active' | 'idle';
+  pendingMessage?: string;
 }
 
 export interface ConversationMessage {

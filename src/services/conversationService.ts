@@ -173,7 +173,8 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
         return await this.simulateTypingWhileProcessing(
           user.phoneNumber,
           async () => {
-            await this.databaseService.updateUserState(user.id!, 'name_collection');
+            // Sauvegarder le message initial comme message en attente
+            await this.databaseService.updateUserState(user.id!, 'name_collection', undefined, userMessage);
             return staticGreetingMessage;
           },
           1800,
@@ -216,15 +217,27 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
       return await this.simulateTypingWhileProcessing(
         user.phoneNumber,
         async () => {
-          // Sauvegarder le nom et passer à l'état actif
-          await this.databaseService.updateUserState(user.id!, 'active', name);
+          // Sauvegarder le nom, passer à l'état actif et effacer pending_message
+          await this.databaseService.updateUserState(user.id!, 'active', name, null);
 
-          // Premier message de bienvenue personnalisé
+          // Si l'utilisateur avait un message en attente, le traiter maintenant
+          if (user.pendingMessage) {
+            logger.info('Traitement du message en attente après collecte du nom', {
+              userId: user.id,
+              name,
+              pendingMessage: user.pendingMessage
+            });
+
+            // Programmer le traitement du message en attente
+            this.schedulePendingMessageResponse(user, name, user.pendingMessage);
+
+            // Premier message de bienvenue personnalisé
+            return this.aiService.createWelcomeAfterNameMessage(name);
+          }
+
+          // Pas de message en attente, comportement normal
           const welcomeMessage = this.aiService.createWelcomeAfterNameMessage(name);
-
-          // Programmer l'envoi du message de suivi de manière asynchrone
           this.scheduleFollowUpMessage(user, name);
-
           return welcomeMessage;
         },
         2500,
@@ -471,6 +484,66 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
     const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
     
     await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Programmer le traitement du message en attente après collecte du nom
+   */
+  private schedulePendingMessageResponse(user: User, userName: string, pendingMessage: string): void {
+    // Programmer le traitement du message en attente après un court délai
+    setTimeout(async () => {
+      try {
+        const { container, TOKENS } = await import('../core');
+        const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE) as {
+          sendMessage(to: string, message: string): Promise<boolean>;
+          sendTypingIndicator(to: string): Promise<boolean>;
+        };
+
+        // Simuler l'écriture de la réponse
+        await whatsappService.sendTypingIndicator(user.phoneNumber);
+
+        // Traiter le message en attente avec l'IA
+        const conversationHistory = await this.databaseService.getConversationHistory(user.id!);
+        const knowledgeContext = await this.knowledgeService.getContextForQuery(pendingMessage);
+        const systemPrompt = this.aiService.createSystemPrompt(userName, knowledgeContext);
+
+        const aiResponse = await this.aiService.generateResponse(
+          pendingMessage,
+          conversationHistory,
+          systemPrompt
+        );
+
+        if (aiResponse.success && aiResponse.content) {
+          const cleanMessage = this.cleanMarkdownForWhatsApp(aiResponse.content);
+
+          // Sauvegarder la réponse
+          await this.databaseService.saveConversationMessage({
+            userId: user.id!,
+            phoneNumber: user.phoneNumber,
+            messageId: `pending_response_${Date.now()}`,
+            content: cleanMessage,
+            messageType: 'bot',
+            timestamp: new Date().toISOString(),
+            aiProvider: this.aiService.getConfig().provider
+          });
+
+          await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
+
+          logger.info('Message en attente traité et réponse envoyée', {
+            phoneNumber: user.phoneNumber,
+            userName,
+            pendingMessage
+          });
+        }
+      } catch (error) {
+        logger.error('Erreur lors du traitement du message en attente', {
+          error,
+          phoneNumber: user.phoneNumber,
+          userName,
+          pendingMessage
+        });
+      }
+    }, 3000); // Délai de 3 secondes après le message de bienvenue
   }
 
   /**

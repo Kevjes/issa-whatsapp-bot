@@ -140,7 +140,8 @@ export class DatabaseService implements IDatabaseService {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           last_interaction DATETIME,
           is_active INTEGER DEFAULT 1,
-          conversation_state TEXT DEFAULT 'greeting'
+          conversation_state TEXT DEFAULT 'greeting',
+          pending_message TEXT
         )
       `);
 
@@ -259,8 +260,9 @@ export class DatabaseService implements IDatabaseService {
           last_interaction: string;
           is_active: number;
           conversation_state: string;
+          pending_message: string | null;
         };
-        
+
         // Mettre à jour la dernière interaction
         await this.runQuery(
           'UPDATE users SET last_interaction = datetime(\'now\') WHERE id = ?',
@@ -277,7 +279,8 @@ export class DatabaseService implements IDatabaseService {
           updatedAt: userRow.updated_at,
           lastInteraction: userRow.last_interaction,
           isActive: Boolean(userRow.is_active),
-          conversationState: userRow.conversation_state as User['conversationState'] as User['conversationState']
+          conversationState: userRow.conversation_state as User['conversationState'],
+          pendingMessage: userRow.pending_message || undefined
         };
       }
 
@@ -311,16 +314,21 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Mettre à jour l'état de conversation d'un utilisateur
    */
-  async updateUserState(userId: number, state: User['conversationState'], name?: string): Promise<void> {
+  async updateUserState(userId: number, state: User['conversationState'], name?: string, pendingMessage?: string | null): Promise<void> {
     await this.ensureInitialized();
 
     try {
       const updateFields = ['conversation_state = ?', 'updated_at = datetime(\'now\')'];
-      const params: (string | number)[] = [state];
+      const params: (string | number | null)[] = [state];
 
       if (name !== undefined) {
         updateFields.push('name = ?');
         params.push(name);
+      }
+
+      if (pendingMessage !== undefined) {
+        updateFields.push('pending_message = ?');
+        params.push(pendingMessage);
       }
 
       params.push(userId);
@@ -330,7 +338,7 @@ export class DatabaseService implements IDatabaseService {
         params
       );
 
-      logger.debug('État utilisateur mis à jour', { userId, state, name });
+      logger.debug('État utilisateur mis à jour', { userId, state, name, hasPendingMessage: !!pendingMessage });
     } catch (error) {
       logger.error('Erreur lors de la mise à jour de l\'état utilisateur', { error, userId, state });
       throw error;
