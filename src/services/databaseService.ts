@@ -281,10 +281,10 @@ export class DatabaseService implements IDatabaseService {
         };
       }
 
-      // Créer un nouvel utilisateur
+      // Créer un nouvel utilisateur avec état initial 'greeting'
       const result = await this.runQuery(
-        `INSERT INTO users (phone_number, name, last_interaction) 
-         VALUES (?, ?, datetime('now'))`,
+        `INSERT INTO users (phone_number, name, last_interaction, conversation_state)
+         VALUES (?, ?, datetime('now'), 'greeting')`,
         [phoneNumber, name || null]
       );
 

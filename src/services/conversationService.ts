@@ -37,11 +37,16 @@ export class ConversationService {
       // Obtenir ou créer l'utilisateur
       let user = await this.databaseService.getOrCreateUser(phoneNumber);
 
-      // Si l'utilisateur n'a pas de nom mais n'est pas dans l'état greeting, le remettre en greeting
+      // IMPORTANT: Si l'utilisateur n'a pas de nom ET n'est pas dans les états appropriés,
+      // le forcer en 'greeting' pour démarrer le workflow de collecte de nom
       if (!user.name && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
+        logger.info('Utilisateur sans nom détecté dans un état incorrect - réinitialisation', {
+          userId: user.id,
+          phoneNumber,
+          currentState: user.conversationState
+        });
         await this.databaseService.updateUserState(user.id!, 'greeting');
         user = { ...user, conversationState: 'greeting' };
-        logger.info('Utilisateur sans nom remis en état greeting', { userId: user.id, phoneNumber });
       }
 
       // Détecter les mots de salutation pour réinitialiser une conversation même si l'utilisateur a un nom
