@@ -71,7 +71,7 @@ This is ISSA, a WhatsApp conversational AI bot for ROI Takaful (Islamic insuranc
 ### Rate Limiting
 Multiple rate limiting strategies implemented:
 - General: 100 requests per 15 minutes
-- Webhook: 50 messages per minute per user  
+- Webhook: 50 messages per minute per user
 - Admin: 20 requests per 15 minutes
 
 ### Database

@@ -1,14 +1,35 @@
 import { KnowledgeBase } from '../types';
 import { DatabaseService } from './databaseService';
 import { logger } from '../utils/logger';
+import { QueryNormalizer } from '../utils/queryNormalizer';
 import * as fs from 'fs';
 import * as path from 'path';
+import NodeCache from 'node-cache';
 
 export class KnowledgeService {
   private databaseService: DatabaseService;
+  private cache: NodeCache;
+  private queryNormalizer: QueryNormalizer;
 
   constructor(databaseService: DatabaseService) {
     this.databaseService = databaseService;
+
+    // Initialiser le cache avec TTL de 1 heure
+    this.cache = new NodeCache({
+      stdTTL: 3600,           // 1 heure de durée de vie
+      checkperiod: 600,       // Vérifier les expirations toutes les 10 minutes
+      useClones: false,       // Pas de clonage pour meilleure performance
+      maxKeys: 1000           // Maximum 1000 entrées en cache
+    });
+
+    // Initialiser le normalisateur de requêtes
+    this.queryNormalizer = new QueryNormalizer();
+
+    logger.info('KnowledgeService initialisé avec cache et normalisation', {
+      ttl: '3600s',
+      maxKeys: 1000,
+      normalizer: 'QueryNormalizer avec stemming français'
+    });
   }
 
   /**
@@ -313,10 +334,33 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
   }
 
   /**
-   * Rechercher dans la base de connaissances
+   * Rechercher dans la base de connaissances (avec normalisation améliorée)
    */
   async search(query: string): Promise<KnowledgeBase[]> {
-    return await this.databaseService.searchKnowledgeBase(query);
+    // Analyser et normaliser la requête
+    const analysis = this.queryNormalizer.analyze(query);
+
+    logger.debug('Requête analysée', {
+      original: analysis.original,
+      normalized: analysis.normalized,
+      keywordsCount: analysis.keywords.length,
+      expandedCount: analysis.expanded.length,
+      language: analysis.language
+    });
+
+    // Créer une requête FTS5 optimisée avec termes élargis
+    const fts5Query = analysis.fts5Query;
+
+    // Rechercher avec la requête élargie
+    const results = await this.databaseService.searchKnowledgeBase(fts5Query);
+
+    logger.debug('Résultats de recherche normalisée', {
+      query: analysis.original,
+      fts5Query,
+      resultsCount: results.length
+    });
+
+    return results;
   }
 
   /**
@@ -327,12 +371,29 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
   }
 
   /**
-   * Obtenir le contexte de connaissance pour une requête
+   * Obtenir le contexte de connaissance pour une requête (OPTIMISÉ avec cache)
    */
   async getContextForQuery(query: string): Promise<string> {
     try {
-      const searchQuery = query.toLowerCase();
-      logger.info('Recherche dans la base de connaissances', { originalQuery: query, searchQuery });
+      const searchQuery = query.toLowerCase().trim();
+      const cacheKey = `context:${searchQuery}`;
+
+      // Vérifier le cache d'abord
+      const cachedContext = this.cache.get<string>(cacheKey);
+      if (cachedContext) {
+        logger.info('Cache HIT pour la recherche', {
+          query: searchQuery,
+          cacheKey,
+          cacheStats: this.getCacheStats()
+        });
+        return cachedContext;
+      }
+
+      logger.info('Cache MISS - Recherche dans la base de connaissances', {
+        originalQuery: query,
+        searchQuery,
+        cacheStats: this.getCacheStats()
+      });
 
       // Essayer plusieurs stratégies de recherche
       let results = await this.search(searchQuery);
@@ -361,23 +422,33 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
         resultTitles: results.map(r => r.title)
       });
 
+      let context: string;
+
       if (results.length === 0) {
         logger.warn('Aucun résultat trouvé', { query: searchQuery });
-        return 'Aucune information spécifique trouvée dans la base de connaissances.';
+        context = 'Aucune information spécifique trouvée dans la base de connaissances.';
+      } else {
+        // Limiter à 3 résultats les plus pertinents
+        const topResults = results.slice(0, 3);
+
+        context = 'Informations pertinentes :\n\n';
+        for (const result of topResults) {
+          context += `**${result.title}**\n${result.content}\n\n`;
+        }
+
+        logger.info('Contexte généré', {
+          query: searchQuery,
+          contextLength: context.length,
+          resultTitles: topResults.map(r => r.title)
+        });
       }
 
-      // Limiter à 3 résultats les plus pertinents
-      const topResults = results.slice(0, 3);
-
-      let context = 'Informations pertinentes :\n\n';
-      for (const result of topResults) {
-        context += `**${result.title}**\n${result.content}\n\n`;
-      }
-
-      logger.info('Contexte généré', {
-        query: searchQuery,
+      // Stocker dans le cache
+      this.cache.set(cacheKey, context);
+      logger.debug('Contexte mis en cache', {
+        cacheKey,
         contextLength: context.length,
-        resultTitles: topResults.map(r => r.title)
+        cacheStats: this.getCacheStats()
       });
 
       return context;
@@ -385,6 +456,51 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
       logger.error('Erreur lors de la recherche de contexte', { error, query });
       return 'Erreur lors de la récupération des informations.';
     }
+  }
+
+  /**
+   * Obtenir les statistiques du cache
+   */
+  getCacheStats(): { keys: number; hits: number; misses: number; ksize: number; vsize: number } {
+    return this.cache.getStats();
+  }
+
+  /**
+   * Vider le cache (utile pour les mises à jour de la base de connaissances)
+   */
+  clearCache(): void {
+    this.cache.flushAll();
+    logger.info('Cache vidé', { stats: this.getCacheStats() });
+  }
+
+  /**
+   * Pré-charger le cache avec les requêtes fréquentes
+   */
+  async warmupCache(): Promise<void> {
+    const topQueries = [
+      'services takaful',
+      'contact roi',
+      'qu\'est-ce que takaful',
+      'agences douala',
+      'assurance islamique',
+      'roi takaful',
+      'sharia board',
+      'hajj',
+      'wakalah',
+      'définition takaful'
+    ];
+
+    logger.info('Pré-chargement du cache avec les requêtes fréquentes', {
+      queryCount: topQueries.length
+    });
+
+    for (const query of topQueries) {
+      await this.getContextForQuery(query);
+    }
+
+    logger.info('Cache pré-chargé avec succès', {
+      stats: this.getCacheStats()
+    });
   }
 
   /**

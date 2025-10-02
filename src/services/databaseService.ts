@@ -182,6 +182,49 @@ export class DatabaseService implements IDatabaseService {
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_category ON knowledge_base(category)');
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_keywords ON knowledge_base(keywords)');
 
+      // Créer la table FTS5 pour recherche full-text optimisée
+      await this.runQuery(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+          category,
+          title,
+          content,
+          keywords,
+          content='knowledge_base',
+          content_rowid='id',
+          tokenize='porter unicode61 remove_diacritics 2'
+        )
+      `);
+
+      // Trigger pour synchroniser automatiquement les insertions
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_insert
+        AFTER INSERT ON knowledge_base BEGIN
+          INSERT INTO knowledge_fts(rowid, category, title, content, keywords)
+          VALUES (new.id, new.category, new.title, new.content, new.keywords);
+        END
+      `);
+
+      // Trigger pour synchroniser automatiquement les mises à jour
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_update
+        AFTER UPDATE ON knowledge_base BEGIN
+          UPDATE knowledge_fts
+          SET category = new.category,
+              title = new.title,
+              content = new.content,
+              keywords = new.keywords
+          WHERE rowid = new.id;
+        END
+      `);
+
+      // Trigger pour synchroniser automatiquement les suppressions
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_delete
+        AFTER DELETE ON knowledge_base BEGIN
+          DELETE FROM knowledge_fts WHERE rowid = old.id;
+        END
+      `);
+
       logger.info('Tables SQLite créées avec succès');
     } catch (error) {
       logger.error('Erreur lors de la création des tables SQLite', { error });
@@ -378,13 +421,76 @@ export class DatabaseService implements IDatabaseService {
   }
 
   /**
-   * Récupérer les données de la base de connaissances par mots-clés
+   * Récupérer les données de la base de connaissances par mots-clés (OPTIMISÉ avec FTS5)
    */
   async searchKnowledgeBase(query: string): Promise<KnowledgeBase[]> {
     await this.ensureInitialized();
 
     try {
-      // Recherche dans les mots-clés (JSON) et le contenu
+      // Nettoyer la requête pour FTS5 (enlever caractères spéciaux)
+      const cleanQuery = query.replace(/[^\w\sÀ-ÿ]/g, ' ').trim();
+
+      if (!cleanQuery) {
+        logger.warn('Requête vide après nettoyage', { originalQuery: query });
+        return [];
+      }
+
+      // Utiliser FTS5 pour recherche optimisée avec BM25 ranking
+      const rows = await this.allQuery(
+        `SELECT kb.*,
+                bm25(fts) as relevance_score
+         FROM knowledge_fts fts
+         JOIN knowledge_base kb ON kb.id = fts.rowid
+         WHERE knowledge_fts MATCH ?
+         AND kb.is_active = 1
+         ORDER BY bm25(fts)
+         LIMIT 10`,
+        [cleanQuery]
+      );
+
+      // Si pas de résultats avec FTS5, fallback sur l'ancienne méthode
+      if (rows.length === 0) {
+        logger.info('Pas de résultats FTS5, utilisation fallback', { query, cleanQuery });
+        return await this.searchKnowledgeBaseFallback(query);
+      }
+
+      return rows.map(row => {
+        const knowledgeRow = row as {
+          id: number;
+          category: string;
+          title: string;
+          content: string;
+          keywords: string;
+          created_at: string;
+          updated_at: string;
+          is_active: number;
+          relevance_score: number;
+        };
+
+        return {
+          id: knowledgeRow.id,
+          category: knowledgeRow.category,
+          title: knowledgeRow.title,
+          content: knowledgeRow.content,
+          keywords: JSON.parse(knowledgeRow.keywords),
+          createdAt: knowledgeRow.created_at,
+          updatedAt: knowledgeRow.updated_at,
+          isActive: Boolean(knowledgeRow.is_active)
+        };
+      });
+
+    } catch (error) {
+      logger.error('Erreur lors de la recherche dans la base de connaissances', { error, query });
+      // Fallback en cas d'erreur FTS5
+      return await this.searchKnowledgeBaseFallback(query);
+    }
+  }
+
+  /**
+   * Méthode de recherche fallback (ancienne méthode LIKE)
+   */
+  private async searchKnowledgeBaseFallback(query: string): Promise<KnowledgeBase[]> {
+    try {
       const rows = await this.allQuery(
         `SELECT * FROM knowledge_base
          WHERE is_active = 1
@@ -400,15 +506,16 @@ export class DatabaseService implements IDatabaseService {
              WHEN keywords LIKE ? THEN 2
              WHEN category LIKE ? THEN 3
              ELSE 4
-           END`,
+           END
+         LIMIT 10`,
         [
-          `%"${query}"%`,  // Recherche dans le JSON des mots-clés
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
-          `%"${query}"%`,  // Pour la priorité des mots-clés
-          `%${query}%`     // Pour la priorité de la catégorie
+          `%${query}%`,
+          `%${query}%`,
+          `%${query}%`
         ]
       );
 
@@ -423,7 +530,7 @@ export class DatabaseService implements IDatabaseService {
           updated_at: string;
           is_active: number;
         };
-        
+
         return {
           id: knowledgeRow.id,
           category: knowledgeRow.category,
@@ -435,10 +542,9 @@ export class DatabaseService implements IDatabaseService {
           isActive: Boolean(knowledgeRow.is_active)
         };
       });
-
     } catch (error) {
-      logger.error('Erreur lors de la recherche dans la base de connaissances', { error, query });
-      throw error;
+      logger.error('Erreur dans la recherche fallback', { error, query });
+      return [];
     }
   }
 
