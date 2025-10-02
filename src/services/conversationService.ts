@@ -123,8 +123,9 @@ export class ConversationService {
   private async handleGreeting(user: User, userMessage: string, messageId: string): Promise<string> {
     try {
       // Vérifier si l'utilisateur donne son nom dans le premier message
+      // MAIS ignorer si c'est juste une salutation
       const nameMatch = this.extractNameFromMessage(userMessage);
-      if (nameMatch) {
+      if (nameMatch && !this.isInvalidName(nameMatch)) {
         return await this.simulateTypingWhileProcessing(
           user.phoneNumber,
           async () => {
@@ -325,7 +326,7 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
     const invalidPatterns = [
       /^\d+$/, // Que des chiffres
       /^[!@#$%^&*()]+$/, // Que des symboles
-      /(bonjour|salut|hello|hi|oui|non|merci)/i, // Mots courants qui ne sont pas des noms
+      /^(bonjour|salut|hello|hi|hey|salam|assalam|bonsoir|bonne\s*journée|ok|oui|non|merci|d'?accord)$/i, // Salutations et mots courants
       /^.{1}$/, // Un seul caractère
       /^\s+$/ // Que des espaces
     ];

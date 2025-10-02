@@ -11,7 +11,9 @@
       "Read(//c/Users/kevin.tene.KIMIA.000/Downloads/**)",
       "Bash(cat:*)",
       "Bash(npm install:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(ssh:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
