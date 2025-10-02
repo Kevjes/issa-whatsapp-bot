@@ -76,15 +76,18 @@ export class QueryNormalizer {
 
   // Stop words français (mots vides à ignorer)
   private stopWords: Set<string> = new Set([
-    'le', 'la', 'les', 'un', 'une', 'des', 'de', 'du',
+    'le', 'la', 'les', 'un', 'une', 'des', 'de', 'du', 'au', 'aux',
     'et', 'ou', 'mais', 'donc', 'or', 'ni', 'car',
     'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles',
     'ce', 'cet', 'cette', 'ces',
     'mon', 'ton', 'son', 'ma', 'ta', 'sa', 'mes', 'tes', 'ses',
-    'qui', 'que', 'quoi', 'dont', 'où',
+    'qui', 'que', 'quoi', 'dont', 'où', 'quand',
+    'quel', 'quelle', 'quels', 'quelles',
     'a', 'ai', 'as', 'ont', 'est', 'sont', 'être', 'avoir',
     'dans', 'sur', 'sous', 'pour', 'par', 'avec', 'sans',
-    'plus', 'moins', 'très', 'trop', 'assez'
+    'plus', 'moins', 'très', 'trop', 'assez',
+    'fait', 'faire', 'dit', 'dire', 'peut', 'puis', 'suis', 'sera',
+    'cest', 'qu', 'offre', 'offrir', 'donne'
   ]);
 
   /**
