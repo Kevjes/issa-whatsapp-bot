@@ -63,6 +63,11 @@ export class KnowledgeService {
       await this.loadROIData();
       await this.loadROITakafulData();
 
+      // Charger les nouveaux fichiers de connaissances détaillées
+      await this.loadGlossaireGeneralData();
+      await this.loadNoticeInformationData();
+      await this.loadTakafulAutomobileData();
+
       logger.info('Base de connaissances initialisée avec succès');
     } catch (error) {
       logger.error('Erreur lors de l\'initialisation de la base de connaissances', { error });
@@ -689,5 +694,120 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
 
     const queryLower = query.toLowerCase();
     return takafulKeywords.some(keyword => queryLower.includes(keyword));
+  }
+
+  /**
+   * Charger le glossaire général ROI Takaful
+   */
+  private async loadGlossaireGeneralData(): Promise<void> {
+    try {
+      const glossaireFilePath = path.join(process.cwd(), 'docs', 'GLOSSAIRE GENERAL ROI TAKAFUL.txt');
+
+      if (!fs.existsSync(glossaireFilePath)) {
+        logger.warn('Fichier GLOSSAIRE GENERAL ROI TAKAFUL.txt introuvable', { path: glossaireFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(glossaireFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_glossaire',
+        title: 'Glossaire Général ROI Takaful',
+        content: content,
+        keywords: [
+          'glossaire', 'définitions', 'termes', 'vocabulaire', 'takaful',
+          'actifs halal', 'comité conformité sharia', 'contribution', 'tabarru',
+          'événement dommageable', 'fatwas', 'fonds takaful', 'franchise',
+          'gharar', 'maysir', 'participant', 'qard hassan', 'riba',
+          'sharia', 'surplus', 'wakalah', 'wakalah fee', 'opérateur'
+        ],
+        isActive: true
+      });
+
+      logger.info('Glossaire général ROI Takaful chargé avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement du glossaire', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger la notice d'information ROI Takaful
+   */
+  private async loadNoticeInformationData(): Promise<void> {
+    try {
+      const noticeFilePath = path.join(process.cwd(), 'docs', 'NOTICE DINFORMATION ROI TAKAFUL.txt');
+
+      if (!fs.existsSync(noticeFilePath)) {
+        logger.warn('Fichier NOTICE DINFORMATION ROI TAKAFUL.txt introuvable', { path: noticeFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(noticeFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_notice',
+        title: 'Notice d\'Information ROI Takaful',
+        content: content,
+        keywords: [
+          'notice information', 'comment fonctionne', 'takaful',
+          'approche solidaire', 'principe tabarru', 'don mutuel',
+          'absence riba', 'absence gharar', 'absence maysir',
+          'séparation fonds', 'rôle opérateur', 'wakiil',
+          'gouvernance sharia', 'comité conformité', 'ccs',
+          'convention takaful', 'contribution takaful', 'frais gestion',
+          'wakalah fee', 'excédents', 'surplus', 'déficits', 'qard hassan',
+          'obligations participant', 'réclamations', 'cima'
+        ],
+        isActive: true
+      });
+
+      logger.info('Notice d\'information ROI Takaful chargée avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement de la notice d\'information', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger les informations ROI Takaful Automobile
+   */
+  private async loadTakafulAutomobileData(): Promise<void> {
+    try {
+      const autoFilePath = path.join(process.cwd(), 'docs', 'ROI TAKAFUL AUTOMOBILE.txt');
+
+      if (!fs.existsSync(autoFilePath)) {
+        logger.warn('Fichier ROI TAKAFUL AUTOMOBILE.txt introuvable', { path: autoFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(autoFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_automobile',
+        title: 'ROI Takaful Automobile',
+        content: content,
+        keywords: [
+          'takaful automobile', 'assurance auto', 'véhicule', 'voiture',
+          'wakala-takaful', 'fonds takaful', 'contribution',
+          'responsabilité civile', 'rc', 'recours tiers', 'rti',
+          'dommages corporels', 'dommages matériels', 'collision',
+          'choc', 'renversement', 'ravin', 'accident',
+          'incendie', 'explosion', 'foudre',
+          'vol', 'braquage', 'tentative vol', 'accessoires',
+          'bris de glace', 'pare-brise', 'phares',
+          'individuelle personnes transportées', 'ipt',
+          'recours défense', 'assistance réparation', 'remorquage',
+          'prise en charge', 'sinistre', 'déclaration', 'expertise',
+          'plafond', 'franchise', 'cameroun', 'cima', 'zone cima'
+        ],
+        isActive: true
+      });
+
+      logger.info('Données ROI Takaful Automobile chargées avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement des données Takaful Automobile', { error });
+      throw error;
+    }
   }
 }

@@ -79,24 +79,33 @@ function checkDataFiles(): boolean {
   const roiFile = path.join(process.cwd(), 'docs', 'presentation_ROI.txt');
   const takafulFile = path.join(process.cwd(), 'docs', 'presentation_ROI_takaful.txt');
   const issaFile = path.join(process.cwd(), 'docs', 'issa.txt');
-  
-  if (!fs.existsSync(roiFile)) {
-    logger.error(`❌ Fichier manquant: ${roiFile}`);
-    return false;
+  const glossaireFile = path.join(process.cwd(), 'docs', 'GLOSSAIRE GENERAL ROI TAKAFUL.txt');
+  const noticeFile = path.join(process.cwd(), 'docs', 'NOTICE DINFORMATION ROI TAKAFUL.txt');
+  const autoFile = path.join(process.cwd(), 'docs', 'ROI TAKAFUL AUTOMOBILE.txt');
+
+  const requiredFiles = [
+    { path: roiFile, name: 'presentation_ROI.txt' },
+    { path: takafulFile, name: 'presentation_ROI_takaful.txt' },
+    { path: issaFile, name: 'issa.txt' },
+    { path: glossaireFile, name: 'GLOSSAIRE GENERAL ROI TAKAFUL.txt' },
+    { path: noticeFile, name: 'NOTICE DINFORMATION ROI TAKAFUL.txt' },
+    { path: autoFile, name: 'ROI TAKAFUL AUTOMOBILE.txt' }
+  ];
+
+  let allFilesFound = true;
+
+  for (const file of requiredFiles) {
+    if (!fs.existsSync(file.path)) {
+      logger.error(`❌ Fichier manquant: ${file.name}`);
+      allFilesFound = false;
+    }
   }
-  
-  if (!fs.existsSync(takafulFile)) {
-    logger.error(`❌ Fichier manquant: ${takafulFile}`);
-    return false;
+
+  if (allFilesFound) {
+    logger.info('✅ Fichiers de données trouvés');
   }
-  
-  if (!fs.existsSync(issaFile)) {
-    logger.error(`❌ Fichier manquant: ${issaFile}`);
-    return false;
-  }
-  
-  logger.info('✅ Fichiers de données trouvés');
-  return true;
+
+  return allFilesFound;
 }
 
 // Script principal
