@@ -341,7 +341,11 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
       /^[!@#$%^&*()]+$/, // Que des symboles
       /^(bonjour|salut|hello|hi|hey|salam|assalam|bonsoir|bonne\s*journée|ok|oui|non|merci|d'?accord)$/i, // Salutations et mots courants
       /^.{1}$/, // Un seul caractère
-      /^\s+$/ // Que des espaces
+      /^\s+$/, // Que des espaces
+      // Rejeter les questions (contiennent ?, quoi, comment, pourquoi, est-ce que, etc.)
+      /\?/, // Contient un point d'interrogation
+      /^(c'est|cest|qu'est|quest|quoi|comment|pourquoi|qui|quand|où|ou|est-ce|quel|quelle)/i, // Débute par un mot interrogatif
+      /(quoi|comment|pourquoi|qui|quand|où|quel|quelle)\s+/i // Contient des mots interrogatifs
     ];
 
     return invalidPatterns.some(pattern => pattern.test(name));
