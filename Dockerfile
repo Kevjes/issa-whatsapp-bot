@@ -1,15 +1,15 @@
 # Production stage
-FROM node:20-alpine
+FROM node:20-slim
 
 # Set working directory
 WORKDIR /app
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN groupadd --gid 1001 nodejs && \
+    useradd --uid 1001 --gid nodejs --shell /bin/bash --create-home nodejs
 
 # Copy package files and install production dependencies
 COPY package*.json ./
