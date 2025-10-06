@@ -4,8 +4,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build output
-dist
+# Build output (commented out - we need dist for deployment)
+# dist
 
 # Environment files
 .env

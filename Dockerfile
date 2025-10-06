@@ -1,22 +1,3 @@
-# Multi-stage build for optimized image size
-FROM node:20-alpine AS builder
-
-# Set working directory
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-
-# Install ALL dependencies (including devDependencies for build)
-RUN npm ci && \
-    npm cache clean --force
-
-# Copy source code
-COPY . .
-
-# Build TypeScript
-RUN npm run build
-
 # Production stage
 FROM node:20-alpine
 
@@ -30,10 +11,12 @@ RUN apk add --no-cache dumb-init
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 
-# Copy built application and dependencies from builder
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+# Copy package files and install production dependencies
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy built application (must be built before docker build)
+COPY --chown=nodejs:nodejs dist ./dist
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/data /app/logs && \
