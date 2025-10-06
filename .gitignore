@@ -185,3 +185,7 @@ config/local.js
 
 # Logs directory
 logs/
+
+# Claude Code files
+.claude/
+CLAUDE.md
