@@ -4,8 +4,26 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { User, ConversationMessage, KnowledgeBase } from '../types';
 import { IDatabaseService } from '../core/interfaces/IDatabaseService';
+import { WorkflowContext, WorkflowStatus } from '../types/workflow';
+import { KnowledgeEntry, KnowledgeCategory } from '../types/knowledge';
 import * as path from 'path';
 import * as fs from 'fs';
+
+/**
+ * Mapper KnowledgeBase (DB) vers KnowledgeEntry (API)
+ */
+function mapKnowledgeBaseToEntry(kb: KnowledgeBase): KnowledgeEntry {
+  return {
+    id: kb.id,
+    category: kb.category as KnowledgeCategory,
+    title: kb.title,
+    content: kb.content,
+    keywords: kb.keywords,
+    createdAt: kb.createdAt,
+    updatedAt: kb.updatedAt,
+    isActive: kb.isActive
+  };
+}
 
 export class DatabaseService implements IDatabaseService {
   private db: Database | null = null;
@@ -226,6 +244,30 @@ export class DatabaseService implements IDatabaseService {
         END
       `);
 
+      // Table des contextes de workflow
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS workflow_contexts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          workflow_id TEXT NOT NULL,
+          current_state TEXT NOT NULL,
+          data TEXT NOT NULL,
+          history TEXT NOT NULL,
+          metadata TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'cancelled', 'failed')),
+          started_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          completed_at DATETIME,
+          error_message TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `);
+
+      // Index pour les workflows
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_user_id ON workflow_contexts(user_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_status ON workflow_contexts(status)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_workflow_id ON workflow_contexts(workflow_id)');
+
       logger.info('Tables SQLite créées avec succès');
     } catch (error) {
       logger.error('Erreur lors de la création des tables SQLite', { error });
@@ -431,7 +473,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Récupérer les données de la base de connaissances par mots-clés (OPTIMISÉ avec FTS5)
    */
-  async searchKnowledgeBase(query: string): Promise<KnowledgeBase[]> {
+  async searchKnowledgeBase(query: string): Promise<KnowledgeEntry[]> {
     await this.ensureInitialized();
 
     try {
@@ -475,7 +517,7 @@ export class DatabaseService implements IDatabaseService {
           relevance_score: number;
         };
 
-        return {
+        return mapKnowledgeBaseToEntry({
           id: knowledgeRow.id,
           category: knowledgeRow.category,
           title: knowledgeRow.title,
@@ -484,7 +526,7 @@ export class DatabaseService implements IDatabaseService {
           createdAt: knowledgeRow.created_at,
           updatedAt: knowledgeRow.updated_at,
           isActive: Boolean(knowledgeRow.is_active)
-        };
+        });
       });
 
     } catch (error) {
@@ -497,7 +539,7 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Méthode de recherche fallback (ancienne méthode LIKE)
    */
-  private async searchKnowledgeBaseFallback(query: string): Promise<KnowledgeBase[]> {
+  private async searchKnowledgeBaseFallback(query: string): Promise<KnowledgeEntry[]> {
     try {
       const rows = await this.allQuery(
         `SELECT * FROM knowledge_base
@@ -539,7 +581,7 @@ export class DatabaseService implements IDatabaseService {
           is_active: number;
         };
 
-        return {
+        return mapKnowledgeBaseToEntry({
           id: knowledgeRow.id,
           category: knowledgeRow.category,
           title: knowledgeRow.title,
@@ -548,7 +590,7 @@ export class DatabaseService implements IDatabaseService {
           createdAt: knowledgeRow.created_at,
           updatedAt: knowledgeRow.updated_at,
           isActive: Boolean(knowledgeRow.is_active)
-        };
+        });
       });
     } catch (error) {
       logger.error('Erreur dans la recherche fallback', { error, query });
@@ -654,5 +696,186 @@ export class DatabaseService implements IDatabaseService {
         resolve();
       }
     });
+  }
+
+  /**
+   * Sauvegarder le contexte d'un workflow
+   */
+  async saveWorkflowContext(userId: number, context: WorkflowContext): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      const data = JSON.stringify(context.data);
+      const history = JSON.stringify(context.history);
+      const metadata = JSON.stringify(context.metadata);
+
+      // Vérifier si un workflow actif existe déjà pour cet utilisateur
+      const existing = await this.getQuery(
+        'SELECT id FROM workflow_contexts WHERE user_id = ? AND status = ?',
+        [userId, 'active']
+      );
+
+      if (existing) {
+        // Mettre à jour le workflow existant
+        await this.runQuery(
+          `UPDATE workflow_contexts
+           SET workflow_id = ?, current_state = ?, data = ?, history = ?,
+               metadata = ?, status = ?, updated_at = ?, completed_at = ?, error_message = ?
+           WHERE id = ?`,
+          [
+            context.workflowId,
+            context.currentState,
+            data,
+            history,
+            metadata,
+            context.status,
+            context.updatedAt,
+            context.completedAt || null,
+            context.errorMessage || null,
+            existing.id
+          ]
+        );
+
+        if (context.id === undefined) {
+          context.id = existing.id as number;
+        }
+      } else {
+        // Insérer un nouveau workflow
+        const result = await this.runQuery(
+          `INSERT INTO workflow_contexts
+           (user_id, workflow_id, current_state, data, history, metadata, status, started_at, updated_at, completed_at, error_message)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            context.workflowId,
+            context.currentState,
+            data,
+            history,
+            metadata,
+            context.status,
+            context.startedAt,
+            context.updatedAt,
+            context.completedAt || null,
+            context.errorMessage || null
+          ]
+        );
+
+        context.id = result.lastID;
+      }
+
+      logger.debug('Workflow context saved', {
+        userId,
+        workflowId: context.workflowId,
+        contextId: context.id,
+        status: context.status
+      });
+
+    } catch (error) {
+      logger.error('Error saving workflow context', {
+        userId,
+        workflowId: context.workflowId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger le contexte d'un workflow actif
+   */
+  async loadWorkflowContext(userId: number): Promise<WorkflowContext | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT * FROM workflow_contexts WHERE user_id = ? AND status = ? ORDER BY updated_at DESC LIMIT 1',
+        [userId, 'active']
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      const context: WorkflowContext = {
+        id: row.id as number,
+        userId: row.user_id as number,
+        workflowId: row.workflow_id as string,
+        currentState: row.current_state as string,
+        data: JSON.parse(row.data as string),
+        history: JSON.parse(row.history as string),
+        metadata: JSON.parse(row.metadata as string || '{}'),
+        status: row.status as WorkflowStatus,
+        startedAt: row.started_at as string,
+        updatedAt: row.updated_at as string,
+        completedAt: row.completed_at as string | undefined,
+        errorMessage: row.error_message as string | undefined
+      };
+
+      return context;
+
+    } catch (error) {
+      logger.error('Error loading workflow context', {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Obtenir toutes les entrées de la base de connaissances
+   */
+  async getAllKnowledgeEntries(): Promise<KnowledgeEntry[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT * FROM knowledge_base WHERE is_active = 1'
+      );
+
+      return rows.map(row => mapKnowledgeBaseToEntry({
+        id: row.id as number,
+        category: row.category as string,
+        title: row.title as string,
+        content: row.content as string,
+        keywords: JSON.parse(row.keywords as string),
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        isActive: row.is_active === 1
+      }));
+
+    } catch (error) {
+      logger.error('Error getting all knowledge entries', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Obtenir les entrées par catégorie
+   */
+  async getKnowledgeByCategory(category: string): Promise<KnowledgeEntry[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT * FROM knowledge_base WHERE category = ? AND is_active = 1',
+        [category]
+      );
+
+      return rows.map(row => mapKnowledgeBaseToEntry({
+        id: row.id as number,
+        category: row.category as string,
+        title: row.title as string,
+        content: row.content as string,
+        keywords: JSON.parse(row.keywords as string),
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        isActive: row.is_active === 1
+      }));
+
+    } catch (error) {
+      logger.error('Error getting knowledge by category', { category, error });
+      return [];
+    }
   }
 }

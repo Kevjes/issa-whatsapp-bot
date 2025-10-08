@@ -32,6 +32,10 @@ export declare const TOKENS: {
     readonly CONVERSATION_SERVICE: symbol;
     readonly CONVERSATION_CONTROLLER: symbol;
     readonly INITIALIZATION_SERVICE: symbol;
+    readonly WORKFLOW_ENGINE: symbol;
+    readonly INTENT_CLASSIFIER: symbol;
+    readonly VALIDATION_SERVICE: symbol;
+    readonly ENHANCED_KNOWLEDGE_SERVICE: symbol;
 };
 export declare const container: Container;
 //# sourceMappingURL=Container.d.ts.map

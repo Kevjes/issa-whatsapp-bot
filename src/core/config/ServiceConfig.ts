@@ -98,13 +98,20 @@ export class ServiceConfig {
     // Importer les services de manière dynamique pour éviter les dépendances circulaires
     const { WhatsAppService } = await import('../../services/whatsappService');
     const { DatabaseService } = await import('../../services/databaseService');
-    
+
     // Nouveaux services
     const { AIService } = await import('../../services/aiService');
     const { KnowledgeService } = await import('../../services/knowledgeService');
     const { ConversationService } = await import('../../services/conversationService');
     const { ConversationController } = await import('../../controllers/conversationController');
     const { InitializationService } = await import('../../services/initializationService');
+
+    // Services de la refonte chat-review
+    const { WorkflowEngine } = await import('../../services/workflowEngine');
+    const { IntentClassifier } = await import('../../services/intentClassifier');
+    const { ValidationService } = await import('../../services/validationService');
+    const { EnhancedKnowledgeService } = await import('../../services/enhancedKnowledgeService');
+    const { workflows, workflowHandlers } = await import('../../workflows');
 
     // Service WhatsApp
     container.register(TOKENS.WHATSAPP_SERVICE, async () => {
@@ -123,21 +130,66 @@ export class ServiceConfig {
       return new AIService(httpClient);
     });
 
-    // Service de base de connaissances
+    // Service de base de connaissances (legacy - toujours nécessaire)
     container.register(TOKENS.KNOWLEDGE_SERVICE, async () => {
       const databaseService = await container.resolve(TOKENS.DATABASE_SERVICE);
       return new KnowledgeService(databaseService as InstanceType<typeof DatabaseService>);
     });
 
-    // Service de conversation
+    // === Services de la refonte chat-review (enregistrés avant ConversationService) ===
+
+    // Validation Service
+    container.register(TOKENS.VALIDATION_SERVICE, () => {
+      return new ValidationService();
+    });
+
+    // Intent Classifier
+    container.register(TOKENS.INTENT_CLASSIFIER, () => {
+      return new IntentClassifier();
+    });
+
+    // Enhanced Knowledge Service
+    container.register(TOKENS.ENHANCED_KNOWLEDGE_SERVICE, async () => {
+      const databaseService = await container.resolve(TOKENS.DATABASE_SERVICE);
+      return new EnhancedKnowledgeService(databaseService as InstanceType<typeof DatabaseService>);
+    });
+
+    // Workflow Engine
+    container.register(TOKENS.WORKFLOW_ENGINE, async () => {
+      const databaseService = await container.resolve(TOKENS.DATABASE_SERVICE);
+      const workflowEngine = new WorkflowEngine(databaseService as InstanceType<typeof DatabaseService>);
+
+      // Enregistrer tous les workflows
+      for (const workflow of workflows) {
+        workflowEngine.registerWorkflow(workflow);
+      }
+
+      // Enregistrer tous les handlers
+      for (const handler of workflowHandlers) {
+        workflowEngine.registerHandler(handler);
+      }
+
+      logger.info('Workflow engine initialized with workflows and handlers', {
+        workflowsCount: workflows.length,
+        handlersCount: workflowHandlers.length
+      });
+
+      return workflowEngine;
+    });
+
+    // Service de conversation (utilise les nouveaux services)
     container.register(TOKENS.CONVERSATION_SERVICE, async () => {
       const databaseService = await container.resolve(TOKENS.DATABASE_SERVICE);
       const aiService = await container.resolve(TOKENS.AI_SERVICE);
-      const knowledgeService = await container.resolve(TOKENS.KNOWLEDGE_SERVICE);
+      const workflowEngine = await container.resolve(TOKENS.WORKFLOW_ENGINE);
+      const intentClassifier = await container.resolve(TOKENS.INTENT_CLASSIFIER);
+      const knowledgeService = await container.resolve(TOKENS.ENHANCED_KNOWLEDGE_SERVICE);
       return new ConversationService(
         databaseService as InstanceType<typeof DatabaseService>,
         aiService as InstanceType<typeof AIService>,
-        knowledgeService as InstanceType<typeof KnowledgeService>
+        workflowEngine as InstanceType<typeof WorkflowEngine>,
+        intentClassifier as InstanceType<typeof IntentClassifier>,
+        knowledgeService as InstanceType<typeof EnhancedKnowledgeService>
       );
     });
 

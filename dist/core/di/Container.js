@@ -79,6 +79,10 @@ exports.TOKENS = {
     CONVERSATION_SERVICE: Symbol('ConversationService'),
     CONVERSATION_CONTROLLER: Symbol('ConversationController'),
     INITIALIZATION_SERVICE: Symbol('InitializationService'),
+    WORKFLOW_ENGINE: Symbol('WorkflowEngine'),
+    INTENT_CLASSIFIER: Symbol('IntentClassifier'),
+    VALIDATION_SERVICE: Symbol('ValidationService'),
+    ENHANCED_KNOWLEDGE_SERVICE: Symbol('EnhancedKnowledgeService'),
 };
 exports.container = Container.getInstance();
 //# sourceMappingURL=Container.js.map

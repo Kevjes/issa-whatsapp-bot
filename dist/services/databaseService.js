@@ -42,6 +42,18 @@ const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
 const path = __importStar(require("path"));
 const fs = __importStar(require("fs"));
+function mapKnowledgeBaseToEntry(kb) {
+    return {
+        id: kb.id,
+        category: kb.category,
+        title: kb.title,
+        content: kb.content,
+        keywords: kb.keywords,
+        createdAt: kb.createdAt,
+        updatedAt: kb.updatedAt,
+        isActive: kb.isActive
+    };
+}
 class DatabaseService {
     constructor() {
         this.db = null;
@@ -212,6 +224,26 @@ class DatabaseService {
           DELETE FROM knowledge_fts WHERE rowid = old.id;
         END
       `);
+            await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS workflow_contexts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          workflow_id TEXT NOT NULL,
+          current_state TEXT NOT NULL,
+          data TEXT NOT NULL,
+          history TEXT NOT NULL,
+          metadata TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'cancelled', 'failed')),
+          started_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          completed_at DATETIME,
+          error_message TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `);
+            await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_user_id ON workflow_contexts(user_id)');
+            await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_status ON workflow_contexts(status)');
+            await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_workflow_id ON workflow_contexts(workflow_id)');
             logger_1.logger.info('Tables SQLite créées avec succès');
         }
         catch (error) {
@@ -358,7 +390,7 @@ class DatabaseService {
             }
             return rows.map(row => {
                 const knowledgeRow = row;
-                return {
+                return mapKnowledgeBaseToEntry({
                     id: knowledgeRow.id,
                     category: knowledgeRow.category,
                     title: knowledgeRow.title,
@@ -367,7 +399,7 @@ class DatabaseService {
                     createdAt: knowledgeRow.created_at,
                     updatedAt: knowledgeRow.updated_at,
                     isActive: Boolean(knowledgeRow.is_active)
-                };
+                });
             });
         }
         catch (error) {
@@ -403,7 +435,7 @@ class DatabaseService {
             ]);
             return rows.map(row => {
                 const knowledgeRow = row;
-                return {
+                return mapKnowledgeBaseToEntry({
                     id: knowledgeRow.id,
                     category: knowledgeRow.category,
                     title: knowledgeRow.title,
@@ -412,7 +444,7 @@ class DatabaseService {
                     createdAt: knowledgeRow.created_at,
                     updatedAt: knowledgeRow.updated_at,
                     isActive: Boolean(knowledgeRow.is_active)
-                };
+                });
             });
         }
         catch (error) {
@@ -488,6 +520,138 @@ class DatabaseService {
                 resolve();
             }
         });
+    }
+    async saveWorkflowContext(userId, context) {
+        await this.ensureInitialized();
+        try {
+            const data = JSON.stringify(context.data);
+            const history = JSON.stringify(context.history);
+            const metadata = JSON.stringify(context.metadata);
+            const existing = await this.getQuery('SELECT id FROM workflow_contexts WHERE user_id = ? AND status = ?', [userId, 'active']);
+            if (existing) {
+                await this.runQuery(`UPDATE workflow_contexts
+           SET workflow_id = ?, current_state = ?, data = ?, history = ?,
+               metadata = ?, status = ?, updated_at = ?, completed_at = ?, error_message = ?
+           WHERE id = ?`, [
+                    context.workflowId,
+                    context.currentState,
+                    data,
+                    history,
+                    metadata,
+                    context.status,
+                    context.updatedAt,
+                    context.completedAt || null,
+                    context.errorMessage || null,
+                    existing.id
+                ]);
+                if (context.id === undefined) {
+                    context.id = existing.id;
+                }
+            }
+            else {
+                const result = await this.runQuery(`INSERT INTO workflow_contexts
+           (user_id, workflow_id, current_state, data, history, metadata, status, started_at, updated_at, completed_at, error_message)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [
+                    userId,
+                    context.workflowId,
+                    context.currentState,
+                    data,
+                    history,
+                    metadata,
+                    context.status,
+                    context.startedAt,
+                    context.updatedAt,
+                    context.completedAt || null,
+                    context.errorMessage || null
+                ]);
+                context.id = result.lastID;
+            }
+            logger_1.logger.debug('Workflow context saved', {
+                userId,
+                workflowId: context.workflowId,
+                contextId: context.id,
+                status: context.status
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error saving workflow context', {
+                userId,
+                workflowId: context.workflowId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            throw error;
+        }
+    }
+    async loadWorkflowContext(userId) {
+        await this.ensureInitialized();
+        try {
+            const row = await this.getQuery('SELECT * FROM workflow_contexts WHERE user_id = ? AND status = ? ORDER BY updated_at DESC LIMIT 1', [userId, 'active']);
+            if (!row) {
+                return null;
+            }
+            const context = {
+                id: row.id,
+                userId: row.user_id,
+                workflowId: row.workflow_id,
+                currentState: row.current_state,
+                data: JSON.parse(row.data),
+                history: JSON.parse(row.history),
+                metadata: JSON.parse(row.metadata || '{}'),
+                status: row.status,
+                startedAt: row.started_at,
+                updatedAt: row.updated_at,
+                completedAt: row.completed_at,
+                errorMessage: row.error_message
+            };
+            return context;
+        }
+        catch (error) {
+            logger_1.logger.error('Error loading workflow context', {
+                userId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            return null;
+        }
+    }
+    async getAllKnowledgeEntries() {
+        await this.ensureInitialized();
+        try {
+            const rows = await this.allQuery('SELECT * FROM knowledge_base WHERE is_active = 1');
+            return rows.map(row => mapKnowledgeBaseToEntry({
+                id: row.id,
+                category: row.category,
+                title: row.title,
+                content: row.content,
+                keywords: JSON.parse(row.keywords),
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                isActive: row.is_active === 1
+            }));
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting all knowledge entries', { error });
+            return [];
+        }
+    }
+    async getKnowledgeByCategory(category) {
+        await this.ensureInitialized();
+        try {
+            const rows = await this.allQuery('SELECT * FROM knowledge_base WHERE category = ? AND is_active = 1', [category]);
+            return rows.map(row => mapKnowledgeBaseToEntry({
+                id: row.id,
+                category: row.category,
+                title: row.title,
+                content: row.content,
+                keywords: JSON.parse(row.keywords),
+                createdAt: row.created_at,
+                updatedAt: row.updated_at,
+                isActive: row.is_active === 1
+            }));
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting knowledge by category', { category, error });
+            return [];
+        }
     }
 }
 exports.DatabaseService = DatabaseService;
