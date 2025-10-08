@@ -1,7 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import https from 'https';
 import { IHttpClient, HttpRequestConfig, HttpResponse, HttpError } from '../interfaces/IHttpClient';
-import { errorHandler } from '../errors/ErrorHandler';
 import { logger } from '../../utils/logger';
 
 /**
@@ -19,7 +18,7 @@ export class HttpClient implements IHttpClient {
   private defaultHeaders: DefaultHeadersConfig = {};
 
   constructor(baseURL?: string, timeout: number = 30000, ignoreSslErrors: boolean = false) {
-    const axiosConfig: any = {
+    const axiosConfig: AxiosRequestConfig = {
       baseURL,
       timeout,
     };
@@ -136,7 +135,7 @@ export class HttpClient implements IHttpClient {
   /**
    * Nettoyer les headers sensibles pour les logs
    */
-  private sanitizeHeaders(headers: any): Record<string, string> {
+  private sanitizeHeaders(headers: Record<string, unknown>): Record<string, string> {
     const sanitized: Record<string, string> = {};
     const sensitiveKeys = ['authorization', 'x-auth-token', 'cookie', 'x-api-key'];
 
@@ -182,12 +181,12 @@ export class HttpClient implements IHttpClient {
     return this.convertResponse(response);
   }
 
-  public async post<T>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>> {
+  public async post<T>(url: string, data?: unknown, config?: HttpRequestConfig): Promise<HttpResponse<T>> {
     const response = await this.axiosInstance.post<T>(url, data, this.convertConfig(config));
     return this.convertResponse(response);
   }
 
-  public async put<T>(url: string, data?: any, config?: HttpRequestConfig): Promise<HttpResponse<T>> {
+  public async put<T>(url: string, data?: unknown, config?: HttpRequestConfig): Promise<HttpResponse<T>> {
     const response = await this.axiosInstance.put<T>(url, data, this.convertConfig(config));
     return this.convertResponse(response);
   }

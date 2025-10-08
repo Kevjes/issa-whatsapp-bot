@@ -141,103 +141,6 @@ export interface AccountNumber {
   currency: string;
 }
 
-// Types pour les sessions PIN
-export interface PinSession {
-  id: string;
-  phoneNumber: string;
-  action: string;
-  accountNumber?: string;
-  accounts?: AccountNumber[];
-  createdAt: string;
-  expiresAt: string;
-  lastAuthenticatedAt?: string;
-  isCompleted: boolean;
-  isExpired: boolean;
-  isLinkUsed: boolean;
-  metadata?: any;
-}
-
-export interface TokenRecord {
-  id?: number;
-  token: string;
-  expiresAt: string;
-  createdAt?: string;
-}
-
-// Types pour l'authentification bancaire
-export interface BankingAuthRequest {
-  username: string;
-  password: string;
-  email: string;
-  device: string;
-}
-
-export interface BankingAuthResponse {
-  success: boolean;
-  token?: string;
-  expiresAt?: string;
-  message?: string;
-  error?: string;
-}
-
-export interface AuthResponse {
-  success: boolean;
-  token?: string;
-  expiresAt?: string;
-  message?: string;
-}
-
-export interface TokenData {
-  token: string;
-  expiresAt: string;
-}
-
-// Types pour les services bancaires
-export interface LoginResponse {
-  success: boolean;
-  message: string;
-  accounts?: BankAccount[];
-  error?: string;
-}
-
-export interface BankAccount {
-  accountValue: string;
-  currency: string;
-}
-
-export interface AccountBalance {
-  solde: number;
-  currency: string;
-}
-
-export interface Transaction {
-  id: string;
-  date: string;
-  description: string;
-  amount: number;
-  type: 'debit' | 'credit';
-  balance: number;
-}
-
-// Types pour les messages entrants interactifs
-export interface WhatsAppInteractiveMessage {
-  from: string;
-  id: string;
-  timestamp: string;
-  type: 'interactive';
-  interactive: {
-    type: 'button_reply' | 'list_reply';
-    button_reply?: {
-      id: string;
-      title: string;
-    };
-    list_reply?: {
-      id: string;
-      title: string;
-      description?: string;
-    };
-  };
-}
 
 // Types pour DeepSeek AI
 export interface DeepSeekRequest {
@@ -297,6 +200,12 @@ export interface AppConfig {
   database: {
     path: string;
   };
+  ai: {
+    provider: 'openai' | 'deepseek';
+    apiKey: string;
+    model: string;
+    baseUrl?: string;
+  };
 }
 
 // Types pour les erreurs
@@ -304,7 +213,7 @@ export interface ApiError {
   message: string;
   code: string;
   statusCode: number;
-  details?: any;
+  details?: unknown;
 }
 
 // Types pour les logs
@@ -312,64 +221,104 @@ export interface LogEntry {
   timestamp: string;
   level: 'info' | 'warn' | 'error' | 'debug';
   message: string;
-  metadata?: any;
+  metadata?: Record<string, unknown>;
 }
 
-// Types pour les transferts intra-bancaires
-export interface TransferRequest {
-  senderAccount: string;
-  receiverAccount: string;
-  amount: number;
-  reason: string;
-  currency: string;
-}
 
-export interface TransferResponse {
-  success: boolean;
-  returnMsg: string;
-  trxId: string;
-  returnValue?: {
-    eventNo: string;
-    eventDate: string;
-    amount: number;
-    fees: number;
-    status: string;
-    branchCode: string;
-    accountNo: string;
-    reason: string;
-    opeCode: string;
-    opeTitle: string;
-    custId: string;
-    custName: string;
-    recipientName: string;
-    recipientAccount: string;
-  }
-  fees?: number;
-  error?: string;
-}
-
-export interface TransferSession {
-  id: string;
+// Types pour les utilisateurs et conversations
+export interface User {
+  id?: number;
   phoneNumber: string;
-  senderAccount?: string;
-  receiverAccount?: string;
-  receiverAccountHolder?: string;
-  amount?: number;
-  reason?: string;
-  currency?: string;
-  step: 'account_selection' | 'receiver_input' | 'receiver_confirmation' | 'amount_input' | 'reason_input' | 'preview' | 'otp_verification' | 'completed';
+  name?: string;
+  firstName?: string;
+  lastName?: string;
   createdAt: string;
-  expiresAt: string;
-  otpInitiated?: boolean;
-  otpAttempts?: number;
+  updatedAt: string;
+  lastInteraction?: string;
+  isActive: boolean;
+  conversationState: 'greeting' | 'name_collection' | 'active' | 'idle';
+  pendingMessage?: string;
 }
 
-export interface AccountValidationResponse {
+export interface ConversationMessage {
+  id?: number;
+  userId: number;
+  phoneNumber: string;
+  messageId: string;
+  content: string;
+  messageType: 'user' | 'bot';
+  timestamp: string;
+  aiProvider?: 'openai' | 'deepseek';
+  metadata?: Record<string, unknown>;
+}
+
+export interface ConversationContext {
+  userId: number;
+  phoneNumber: string;
+  userName?: string;
+  conversationHistory: ConversationMessage[];
+  lastInteraction: string;
+  state: 'greeting' | 'name_collection' | 'active' | 'idle';
+}
+
+export interface AIProviderConfig {
+  provider: 'openai' | 'deepseek';
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+}
+
+export interface KnowledgeBase {
+  id?: number;
+  category: string;
+  title: string;
+  content: string;
+  keywords: string[];
+  createdAt: string;
+  updatedAt: string;
+  isActive: boolean;
+}
+
+// Types pour les réponses d'IA
+export interface AIResponse {
   success: boolean;
-  accountExists: boolean;
-  accountHolder?: string;
-  message?: string;
+  content?: string;
   error?: string;
+  provider: 'openai' | 'deepseek';
+  tokensUsed?: number;
+}
+
+// Types pour OpenAI
+export interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface OpenAIRequest {
+  model: string;
+  messages: OpenAIMessage[];
+  temperature?: number;
+  max_tokens?: number;
+  stream?: boolean;
+}
+
+export interface OpenAIResponse {
+  id: string;
+  object: string;
+  created: number;
+  model: string;
+  choices: OpenAIChoice[];
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+}
+
+export interface OpenAIChoice {
+  index: number;
+  message: OpenAIMessage;
+  finish_reason: string;
 }
 
 // Types pour le contexte utilisateur (pour plus tard)
@@ -378,5 +327,5 @@ export interface UserContext {
   name?: string;
   lastInteraction: Date;
   conversationState: 'idle' | 'awaiting_auth' | 'authenticated' | 'in_transaction';
-  sessionData?: any;
+  sessionData?: Record<string, unknown>;
 }

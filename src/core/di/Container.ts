@@ -12,7 +12,7 @@ export interface ServiceDefinition<T> {
 
 export class Container {
   private static instance: Container;
-  private services: Map<string | symbol, ServiceDefinition<any>> = new Map();
+  private services: Map<string | symbol, ServiceDefinition<unknown>> = new Map();
 
   private constructor() {}
 
@@ -60,11 +60,11 @@ export class Container {
 
     // Si c'est un singleton et qu'on a déjà une instance
     if (serviceDefinition.singleton && serviceDefinition.instance) {
-      return serviceDefinition.instance;
+      return serviceDefinition.instance as T;
     }
 
     // Créer une nouvelle instance
-    const instance = await serviceDefinition.factory();
+    const instance = await serviceDefinition.factory() as T;
 
     // Stocker l'instance si c'est un singleton
     if (serviceDefinition.singleton) {
@@ -86,7 +86,7 @@ export class Container {
 
     // Si c'est un singleton et qu'on a déjà une instance
     if (serviceDefinition.singleton && serviceDefinition.instance) {
-      return serviceDefinition.instance;
+      return serviceDefinition.instance as T;
     }
 
     // Créer une nouvelle instance (factory doit être synchrone)
@@ -135,17 +135,15 @@ export class Container {
 export const TOKENS = {
   HTTP_CLIENT: Symbol('HttpClient'),
   WHATSAPP_HTTP_CLIENT: Symbol('WhatsAppHttpClient'),
-  BANKING_HTTP_CLIENT: Symbol('BankingHttpClient'),
+  AI_HTTP_CLIENT: Symbol('AIHttpClient'),
   WHATSAPP_SERVICE: Symbol('WhatsAppService'),
-  BANKING_SERVICE: Symbol('BankingService'),
-  BANKING_AUTH_SERVICE: Symbol('BankingAuthService'),
-  PIN_SESSION_SERVICE: Symbol('PinSessionService'),
-  TRANSFER_SESSION_SERVICE: Symbol('TransferSessionService'),
   DATABASE_SERVICE: Symbol('DatabaseService'),
-  MENU_SERVICE: Symbol('MenuService'),
-  MENU_CONTROLLER: Symbol('MenuController'),
-  MESSAGE_CONTROLLER: Symbol('MessageController'),
-  DEEPSEEK_SERVICE: Symbol('DeepSeekService'),
+  // Nouveaux services conversationnels
+  AI_SERVICE: Symbol('AIService'),
+  KNOWLEDGE_SERVICE: Symbol('KnowledgeService'),
+  CONVERSATION_SERVICE: Symbol('ConversationService'),
+  CONVERSATION_CONTROLLER: Symbol('ConversationController'),
+  INITIALIZATION_SERVICE: Symbol('InitializationService'),
 } as const;
 
 // Instance singleton

@@ -31,9 +31,9 @@ class Logger {
       winston.format.printf(({ timestamp, level, message, metadata, stack }) => {
         const logEntry: LogEntry = {
           timestamp: timestamp as string,
-          level: level as any,
+          level: level as LogEntry['level'],
           message: message as string,
-          metadata: metadata || undefined
+          metadata: metadata as Record<string, unknown> || undefined
         };
         
         if (stack) {

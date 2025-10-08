@@ -45,10 +45,17 @@ export const config: AppConfig = {
   database: {
     path: process.env.DB_PATH || './data/issa.db'
   },
+  
+  ai: {
+    provider: (process.env.AI_PROVIDER as 'openai' | 'deepseek') || 'deepseek',
+    apiKey: validateEnvVar('AI_API_KEY', process.env.AI_API_KEY),
+    model: process.env.AI_MODEL || (process.env.AI_PROVIDER === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat'),
+    baseUrl: process.env.AI_BASE_URL
+  },
 };
 
 // URLs de l'API WhatsApp
-export const WHATSAPP_API_BASE_URL = 'https://graph.facebook.com/v22.0';
+export const WHATSAPP_API_BASE_URL = 'https://graph.facebook.com/v23.0';
 export const WHATSAPP_SEND_MESSAGE_URL = `${WHATSAPP_API_BASE_URL}/${config.whatsapp.phoneNumberId}/messages`;
 
 // Configuration des logs

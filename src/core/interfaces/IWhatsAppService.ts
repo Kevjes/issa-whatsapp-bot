@@ -26,6 +26,11 @@ export interface IWhatsAppService {
   markMessageAsRead(messageId: string): Promise<boolean>;
 
   /**
+   * Simuler l'indicateur "En train d'écrire"
+   */
+  sendTypingIndicator(to: string, messageId?: string): Promise<boolean>;
+
+  /**
    * Vérifier la santé du service
    */
   healthCheck(): Promise<boolean>;
@@ -33,5 +38,5 @@ export interface IWhatsAppService {
   /**
    * Obtenir les informations du profil business
    */
-  getBusinessProfile(): Promise<any>;
+  getBusinessProfile(): Promise<{ name?: string; description?: string; website?: string; [key: string]: unknown }>;
 }

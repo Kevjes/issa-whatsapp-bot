@@ -50,7 +50,7 @@ export class WhatsAppService implements IWhatsAppService {
         logger.logWhatsAppMessage('outgoing', normalizedPhoneNumber, finalMessageData);
         logger.info('WhatsApp message sent', {
           to: normalizedPhoneNumber,
-          messageId: (response.data as any).messages?.[0]?.id
+          messageId: (response.data as { messages?: { id: string }[] }).messages?.[0]?.id
         });
         return true;
       } else {
@@ -61,14 +61,14 @@ export class WhatsAppService implements IWhatsAppService {
         return false;
       }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Normaliser le numéro pour les logs d'erreur aussi
       const normalizedPhoneNumber = normalizeCameroonianPhoneNumber(messageData.to);
       
       logger.error('Failed to send WhatsApp message', {
         to: normalizedPhoneNumber,
-        error: error.message,
-        status: error.response?.status
+        error: error instanceof Error ? error.message : 'Unknown error',
+        status: (error as { response?: { status?: number } }).response?.status
       });
       return false;
     }
@@ -146,10 +146,73 @@ export class WhatsAppService implements IWhatsAppService {
       );
 
       return response.status === 200;
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error('Failed to mark message as read', {
         messageId,
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Simuler l'indicateur "En train d'écrire"
+   */
+  async sendTypingIndicator(to: string, messageId?: string): Promise<boolean> {
+    try {
+      // Normaliser le numéro de téléphone
+      const normalizedPhoneNumber = normalizeCameroonianPhoneNumber(to);
+
+      if (!validatePhoneNumber(normalizedPhoneNumber)) {
+        logger.error('Invalid phone number for typing indicator', {
+          original: to,
+          normalized: normalizedPhoneNumber
+        });
+        return false;
+      }
+
+      // Si pas de messageId, on ne peut pas envoyer l'indicateur de frappe selon l'API WhatsApp
+      if (!messageId) {
+        logger.debug('No messageId provided for typing indicator, skipping', {
+          to: normalizedPhoneNumber
+        });
+        return true; // Retourner true pour ne pas interrompre le flow
+      }
+
+      const typingData = {
+        messaging_product: 'whatsapp' as const,
+        status: 'read' as const,
+        message_id: messageId,
+        typing_indicator: {
+          type: 'text' as const
+        }
+      };
+
+      const response = await this.httpClient.post(
+        `/${config.whatsapp.phoneNumberId}/messages`,
+        typingData
+      );
+
+      if (response.status === 200) {
+        logger.debug('Typing indicator sent successfully', {
+          to: normalizedPhoneNumber,
+          messageId
+        });
+        return true;
+      } else {
+        logger.warn('Failed to send typing indicator', {
+          to: normalizedPhoneNumber,
+          status: response.status,
+          messageId
+        });
+        return false;
+      }
+
+    } catch (error: unknown) {
+      logger.error('Error sending typing indicator', {
+        to,
+        messageId,
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
       return false;
     }
@@ -175,7 +238,7 @@ export class WhatsAppService implements IWhatsAppService {
   /**
    * Obtenir les informations du profil WhatsApp Business
    */
-  async getBusinessProfile(): Promise<any> {
+  async getBusinessProfile(): Promise<{ name?: string; description?: string; website?: string; [key: string]: unknown }> {
     try {
       const response = await this.httpClient.get(
         `/${this.phoneNumberId}`,
@@ -186,12 +249,12 @@ export class WhatsAppService implements IWhatsAppService {
         }
       );
 
-       return response.data;
-    } catch (error: any) {
+       return response.data as { name?: string; description?: string; website?: string; [key: string]: unknown };
+    } catch (error: unknown) {
       logger.error('Failed to retrieve business profile', {
-        error: error.message
+        error: error instanceof Error ? error.message : 'Unknown error'
       });
-      return null;
+      return {};
     }
   }
 }

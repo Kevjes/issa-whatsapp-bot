@@ -8,10 +8,11 @@ import { logger } from './utils/logger';
 import { errorHandler, requestLogger } from './middlewares/validation';
 import { generalRateLimit, adminRateLimit } from './middlewares/rateLimiter';
 import whatsappWebhook from './webhooks/whatsappWebhook';
-import logRoutes from './routes/logRoutes';
 import { ServiceConfig } from './core/config/ServiceConfig';
 import { container, TOKENS } from './core';
 import { IWhatsAppService } from './core/interfaces/IWhatsAppService';
+import { IHttpClient } from './core/interfaces/IHttpClient';
+import { InitializationService } from './services/initializationService';
 
 class App {
   public app: Application;
@@ -36,10 +37,17 @@ class App {
    */
   private async initializeServices(): Promise<void> {
     try {
-      // Initialize service configuration
+      // Initialize service configuration (dependency injection container)
       await ServiceConfig.initialize();
       
-      logger.info('Services initialized successfully');
+      // Initialize the new conversation system
+      const initService = await container.resolve<InitializationService>(TOKENS.INITIALIZATION_SERVICE);
+      const whatsappService = await container.resolve<IWhatsAppService>(TOKENS.WHATSAPP_SERVICE);
+      const httpClient = await container.resolve(TOKENS.HTTP_CLIENT) as IHttpClient;
+      
+      await initService.initialize(httpClient, whatsappService);
+      
+      logger.info('Services initialized successfully with conversation system');
     } catch (error) {
       logger.error('Error initializing services', {
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -55,7 +63,6 @@ class App {
     try {
       // Importer les services nécessaires
       const { DatabaseService } = await import('./services/databaseService');
-      const { logManagementService } = await import('./services/logManagementService');
 
       // Créer les instances des services
       const databaseService = new DatabaseService();
@@ -93,9 +100,9 @@ class App {
     // Parsing JSON avec limite de taille
     this.app.use(express.json({ 
       limit: '10mb',
-      verify: (req: any, res, buf) => {
+      verify: (req: Request, res, buf) => {
         // Stocker le body brut pour la validation de signature
-        req.rawBody = buf;
+        (req as Request & { rawBody: Buffer }).rawBody = buf;
       }
     }));
     
@@ -154,11 +161,11 @@ class App {
           memory: process.memoryUsage(),
           version: '1.0.0'
         });
-      } catch (error: any) {
-        logger.error('Erreur lors du health check', { error: error.message });
+      } catch (error: unknown) {
+        logger.error('Erreur lors du health check', { error: error instanceof Error ? error.message : 'Unknown error' });
         res.status(503).json({
           status: 'unhealthy',
-          error: error.message
+          error: error instanceof Error ? error.message : 'Unknown error'
         });
       }
     });
@@ -177,8 +184,6 @@ class App {
     // Routes administratives (avec rate limiting strict)
     this.app.use('/admin', adminRateLimit);
     
-    // Routes de gestion des logs
-    this.app.use('/api/logs', logRoutes);
     
     // Initialiser les services du dashboard
      await this.initializeDashboardRoutes();
@@ -196,22 +201,30 @@ class App {
       res.sendFile(path.join(__dirname, '../public/dashboard/index.html'));
     });
     
-    // Menu statistics
-    this.app.get('/admin/stats', (req: Request, res: Response) => {
-      res.json({
-        message: 'WhatsApp interactive menu system',
-        status: 'active',
-        features: [
-          'Personalized welcome messages',
-          'Interactive menu with buttons',
-          'Dropdown lists for options',
-          'Confirmation messages',
-          'Secure PIN authentication',
-          'Banking integration',
-          'Temporary PIN sessions'
-        ],
-        timestamp: new Date().toISOString()
-      });
+    // ISSA Statistics
+    this.app.get('/admin/stats', async (req: Request, res: Response) => {
+      try {
+        const initService = await container.resolve<InitializationService>(TOKENS.INITIALIZATION_SERVICE);
+        const systemStats = await initService.getSystemStats();
+        
+        res.json({
+          message: 'ISSA - Assistant virtuel Royal Onyx Insurance',
+          status: 'active',
+          features: [
+            'Conversations naturelles avec IA (OpenAI/DeepSeek)',
+            'Sauvegarde historique conversations',
+            'Base de connaissances ROI et ROI Takaful',
+            'Gestion des utilisateurs personnalisée',
+            'Collecte automatique des noms',
+            'Réponses contextuelles intelligentes'
+          ],
+          systemStats,
+          timestamp: new Date().toISOString()
+        });
+      } catch (error) {
+        logger.error('Error retrieving system stats', { error });
+        res.status(500).json({ error: 'Internal server error' });
+      }
     });
     
     // Informations sur le profil WhatsApp Business
@@ -220,8 +233,8 @@ class App {
         const whatsappService = await container.resolve<IWhatsAppService>(TOKENS.WHATSAPP_SERVICE);
         const profile = await whatsappService.getBusinessProfile();
         res.json(profile);
-      } catch (error: any) {
-        logger.error('Error retrieving profile', { error: error.message });
+      } catch (error: unknown) {
+        logger.error('Error retrieving profile', { error: error instanceof Error ? error.message : 'Unknown error' });
         res.status(500).json({ error: 'Internal server error' });
       }
     });
