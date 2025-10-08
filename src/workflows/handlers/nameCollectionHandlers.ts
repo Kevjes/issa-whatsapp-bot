@@ -27,7 +27,7 @@ export class ValidateUserNameHandler implements WorkflowHandler {
   async execute(context: WorkflowContext): Promise<WorkflowHandlerResult> {
     try {
       const userName = context.data.user_name?.trim();
-
+      logger.info("userName", userName);
       if (!userName) {
         return {
           success: false,
