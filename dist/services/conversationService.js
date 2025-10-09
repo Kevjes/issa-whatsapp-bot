@@ -98,7 +98,7 @@ class ConversationService {
                 workflowId: workflowContext.workflowId,
                 currentState: workflowContext.currentState
             });
-            const stepResult = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => await this.workflowEngine.executeStep(user.id, workflowContext, userMessage), 2000, messageId);
+            let stepResult = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => await this.workflowEngine.executeStep(user.id, workflowContext, userMessage), 2000, messageId);
             if (!stepResult.success) {
                 logger_1.logger.error('Erreur lors de l\'exécution du workflow', {
                     userId: user.id,
@@ -106,6 +106,28 @@ class ConversationService {
                     error: stepResult.error
                 });
                 return stepResult.message || stepResult.error || 'Une erreur est survenue.';
+            }
+            let maxAutoSteps = 5;
+            while (!stepResult.message && !stepResult.completed && maxAutoSteps > 0) {
+                logger_1.logger.info('Exécution automatique de l\'étape suivante (pas de message)', {
+                    userId: user.id,
+                    workflowId: workflowContext.workflowId,
+                    currentState: workflowContext.currentState
+                });
+                const updatedContext = await this.workflowEngine.getActiveWorkflow(user.id);
+                if (!updatedContext) {
+                    break;
+                }
+                stepResult = await this.workflowEngine.executeStep(user.id, updatedContext, '');
+                maxAutoSteps--;
+                if (!stepResult.success) {
+                    logger_1.logger.error('Erreur lors de l\'exécution automatique du workflow', {
+                        userId: user.id,
+                        workflowId: workflowContext.workflowId,
+                        error: stepResult.error
+                    });
+                    return stepResult.message || stepResult.error || 'Une erreur est survenue.';
+                }
             }
             if (stepResult.context && stepResult.context.status === 'completed') {
                 logger_1.logger.info('Workflow terminé avec succès', {

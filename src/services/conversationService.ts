@@ -126,7 +126,7 @@ export class ConversationService {
       });
 
       // Exécuter l'étape suivante du workflow
-      const stepResult: WorkflowStepResult = await this.simulateTypingWhileProcessing(
+      let stepResult: WorkflowStepResult = await this.simulateTypingWhileProcessing(
         user.phoneNumber,
         async () => await this.workflowEngine.executeStep(user.id!, workflowContext, userMessage),
         2000,
@@ -143,6 +143,36 @@ export class ConversationService {
 
         // Retourner le message d'erreur du workflow (avec instructions)
         return stepResult.message || stepResult.error || 'Une erreur est survenue.';
+      }
+
+      // Si le message est vide et que le workflow n'est pas terminé, continuer automatiquement
+      // Cela permet d'exécuter les états de traitement (processing) sans interaction utilisateur
+      let maxAutoSteps = 5; // Limite pour éviter les boucles infinies
+      while (!stepResult.message && !stepResult.completed && maxAutoSteps > 0) {
+        logger.info('Exécution automatique de l\'étape suivante (pas de message)', {
+          userId: user.id,
+          workflowId: workflowContext.workflowId,
+          currentState: workflowContext.currentState
+        });
+
+        // Recharger le contexte mis à jour
+        const updatedContext = await this.workflowEngine.getActiveWorkflow(user.id!);
+        if (!updatedContext) {
+          break;
+        }
+
+        // Exécuter l'étape suivante avec un message vide (étape automatique)
+        stepResult = await this.workflowEngine.executeStep(user.id!, updatedContext, '');
+        maxAutoSteps--;
+
+        if (!stepResult.success) {
+          logger.error('Erreur lors de l\'exécution automatique du workflow', {
+            userId: user.id,
+            workflowId: workflowContext.workflowId,
+            error: stepResult.error
+          });
+          return stepResult.message || stepResult.error || 'Une erreur est survenue.';
+        }
       }
 
       // Vérifier si le workflow est terminé
