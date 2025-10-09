@@ -37,5 +37,6 @@ export declare class KnowledgeService {
     private loadGlossaireGeneralData;
     private loadNoticeInformationData;
     private loadTakafulAutomobileData;
+    private loadSanteGroupeData;
 }
 //# sourceMappingURL=knowledgeService.d.ts.map

@@ -77,6 +77,7 @@ class KnowledgeService {
             await this.loadGlossaireGeneralData();
             await this.loadNoticeInformationData();
             await this.loadTakafulAutomobileData();
+            await this.loadSanteGroupeData();
             logger_1.logger.info('Base de connaissances initialisée avec succès');
         }
         catch (error) {
@@ -624,6 +625,44 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
         }
         catch (error) {
             logger_1.logger.error('Erreur lors du chargement des données Takaful Automobile', { error });
+            throw error;
+        }
+    }
+    async loadSanteGroupeData() {
+        try {
+            const santeFilePath = path.join(process.cwd(), 'docs', 'ROI_TAKAFUL_SANTE_GROUPE_POUR_ISSA.txt');
+            if (!fs.existsSync(santeFilePath)) {
+                logger_1.logger.warn('Fichier ROI_TAKAFUL_SANTE_GROUPE_POUR_ISSA.txt introuvable', { path: santeFilePath });
+                return;
+            }
+            const content = fs.readFileSync(santeFilePath, 'utf8');
+            await this.databaseService.addKnowledgeEntry({
+                category: 'takaful_sante_groupe',
+                title: 'ROI Takaful Santé Groupe',
+                content: content,
+                keywords: [
+                    'takaful santé', 'santé groupe', 'assurance santé', 'convention santé',
+                    'prestations santé', 'couverture santé', 'personnel', 'employés',
+                    'consultation', 'ambulatoire', 'hospitalisation', 'chirurgie',
+                    'maternité', 'accouchement', 'grossesse', 'césarienne',
+                    'pharmacie', 'médicaments', 'prescription',
+                    'frais dentaires', 'soins dentaires', 'prothèses', 'extraction',
+                    'optique', 'lunettes', 'verres correcteurs', 'montures',
+                    'analyses', 'laboratoire', 'examens médicaux', 'biologie',
+                    'rééducation', 'kinésithérapie', 'médecine traditionnelle',
+                    'évacuation sanitaire', 'transfert', 'assistance',
+                    'soins étranger', 'vih', 'sida', 'maladies opportunistes',
+                    'prise en charge', 'remboursement', 'bon de prise en charge',
+                    'prestataires', 'centres conventionnés', 'libre choix',
+                    'plafond', 'franchise', 'contributeur', 'participant',
+                    'sharia', 'charia', 'conforme', 'islamique'
+                ],
+                isActive: true
+            });
+            logger_1.logger.info('Données ROI Takaful Santé Groupe chargées avec succès');
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur lors du chargement des données Takaful Santé Groupe', { error });
             throw error;
         }
     }
