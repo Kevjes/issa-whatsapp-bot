@@ -234,10 +234,16 @@ Je reste à votre disposition pour toute question sur nos produits et services d
         };
       }
 
-      // L'URL Gemini nécessite l'API key dans l'URL
-      const endpoint = `/models/${this.aiConfig.model}:generateContent?key=${this.aiConfig.apiKey}`;
+      // Endpoint Gemini (sans API key dans l'URL)
+      const endpoint = `/models/${this.aiConfig.model}:generateContent`;
 
-      const response = await this.httpClient.post(endpoint, requestData);
+      // Gemini nécessite l'API key dans le header x-goog-api-key
+      const response = await this.httpClient.post(endpoint, requestData, {
+        headers: {
+          'x-goog-api-key': this.aiConfig.apiKey,
+          'Content-Type': 'application/json'
+        }
+      });
 
       const data = response.data as any;
 
