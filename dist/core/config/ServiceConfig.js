@@ -120,8 +120,11 @@ class ServiceConfig {
         Container_1.container.register(Container_1.TOKENS.INTENT_CLASSIFIER, () => {
             return new IntentClassifier();
         });
-        Container_1.container.register(Container_1.TOKENS.VECTOR_SEARCH_SERVICE, () => {
-            return new VectorSearchService();
+        Container_1.container.register(Container_1.TOKENS.VECTOR_SEARCH_SERVICE, async () => {
+            const vectorService = new VectorSearchService();
+            await vectorService.initialize();
+            logger_1.logger.info('VectorSearchService initialized in DI container');
+            return vectorService;
         });
         Container_1.container.register(Container_1.TOKENS.ENHANCED_KNOWLEDGE_SERVICE, async () => {
             const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);

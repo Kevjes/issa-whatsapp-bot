@@ -150,8 +150,11 @@ export class ServiceConfig {
     });
 
     // Vector Search Service
-    container.register(TOKENS.VECTOR_SEARCH_SERVICE, () => {
-      return new VectorSearchService();
+    container.register(TOKENS.VECTOR_SEARCH_SERVICE, async () => {
+      const vectorService = new VectorSearchService();
+      await vectorService.initialize();
+      logger.info('VectorSearchService initialized in DI container');
+      return vectorService;
     });
 
     // Enhanced Knowledge Service
