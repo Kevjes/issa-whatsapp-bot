@@ -390,10 +390,22 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             5
           );
 
-          // Construire le contexte à partir des résultats
-          const knowledgeContext = searchResults.entries
-            .map(scored => scored.content)
-            .join('\n\n');
+          logger.info('Knowledge search results', {
+            query: userMessage.substring(0, 50),
+            totalFound: searchResults.totalFound,
+            entriesCount: searchResults.entries.length,
+            topScores: searchResults.entries.slice(0, 3).map(e => e.relevanceScore),
+            topTitles: searchResults.entries.slice(0, 3).map(e => e.title)
+          });
+
+          // Construire le contexte à partir des résultats (formaté avec formatContextForAI)
+          const formattedContext = await this.knowledgeService.formatContextForAI(searchResults, 3);
+          const knowledgeContext = formattedContext.formattedContext;
+
+          logger.info('Knowledge context for AI', {
+            contextLength: knowledgeContext.length,
+            relevantEntries: formattedContext.relevantEntries.length
+          });
 
           // Créer le prompt système avec contexte
           const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
