@@ -178,32 +178,41 @@ export class ConversationService {
 
       // Vérifier si le workflow est terminé
       if (stepResult.completed) {
-        // Recharger le contexte pour avoir les données finales
-        const finalContext = await this.workflowEngine.getActiveWorkflow(user.id!);
-
         logger.info('Workflow terminé avec succès', {
           userId: user.id,
-          workflowId: workflowContext.workflowId,
-          finalStatus: finalContext?.status
+          workflowId: workflowContext.workflowId
         });
 
         // Si c'est le workflow de collecte de nom, mettre à jour le nom de l'utilisateur
-        if (workflowContext.workflowId === 'name_collection' && finalContext?.data.user_name) {
-          logger.info('Sauvegarde du nom de l\'utilisateur', {
-            userId: user.id,
-            userName: finalContext.data.user_name
-          });
+        // Récupérer le nom depuis le dernier contexte chargé dans la boucle while
+        if (workflowContext.workflowId === 'name_collection') {
+          // Recharger le contexte depuis la base pour avoir toutes les données
+          // même si le workflow est marqué completed
+          const savedContext = await this.databaseService.getWorkflowContextById(user.id!, 'name_collection');
 
-          await this.databaseService.updateUserState(
-            user.id!,
-            'active',
-            finalContext.data.user_name
-          );
+          if (savedContext && savedContext.data.user_name) {
+            logger.info('Sauvegarde du nom de l\'utilisateur', {
+              userId: user.id,
+              userName: savedContext.data.user_name
+            });
 
-          logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
-            userId: user.id,
-            userName: finalContext.data.user_name
-          });
+            await this.databaseService.updateUserState(
+              user.id!,
+              'active',
+              savedContext.data.user_name
+            );
+
+            logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
+              userId: user.id,
+              userName: savedContext.data.user_name
+            });
+          } else {
+            logger.warn('Impossible de récupérer le nom depuis le contexte du workflow', {
+              userId: user.id,
+              hasContext: !!savedContext,
+              hasUserName: savedContext?.data.user_name
+            });
+          }
         }
       }
 

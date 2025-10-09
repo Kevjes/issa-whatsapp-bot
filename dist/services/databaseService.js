@@ -613,6 +613,38 @@ class DatabaseService {
             return null;
         }
     }
+    async getWorkflowContextById(userId, workflowId) {
+        await this.ensureInitialized();
+        try {
+            const row = await this.getQuery('SELECT * FROM workflow_contexts WHERE user_id = ? AND workflow_id = ? ORDER BY updated_at DESC LIMIT 1', [userId, workflowId]);
+            if (!row) {
+                return null;
+            }
+            const context = {
+                id: row.id,
+                userId: row.user_id,
+                workflowId: row.workflow_id,
+                currentState: row.current_state,
+                data: JSON.parse(row.data),
+                history: JSON.parse(row.history),
+                metadata: JSON.parse(row.metadata || '{}'),
+                status: row.status,
+                startedAt: row.started_at,
+                updatedAt: row.updated_at,
+                completedAt: row.completed_at,
+                errorMessage: row.error_message
+            };
+            return context;
+        }
+        catch (error) {
+            logger_1.logger.error('Error loading workflow context by ID', {
+                userId,
+                workflowId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            return null;
+        }
+    }
     async getAllKnowledgeEntries() {
         await this.ensureInitialized();
         try {

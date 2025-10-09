@@ -823,6 +823,50 @@ export class DatabaseService implements IDatabaseService {
   }
 
   /**
+   * Charger un contexte de workflow spécifique par userId et workflowId
+   * Permet de récupérer un workflow même s'il est completed
+   */
+  async getWorkflowContextById(userId: number, workflowId: string): Promise<WorkflowContext | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT * FROM workflow_contexts WHERE user_id = ? AND workflow_id = ? ORDER BY updated_at DESC LIMIT 1',
+        [userId, workflowId]
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      const context: WorkflowContext = {
+        id: row.id as number,
+        userId: row.user_id as number,
+        workflowId: row.workflow_id as string,
+        currentState: row.current_state as string,
+        data: JSON.parse(row.data as string),
+        history: JSON.parse(row.history as string),
+        metadata: JSON.parse(row.metadata as string || '{}'),
+        status: row.status as WorkflowStatus,
+        startedAt: row.started_at as string,
+        updatedAt: row.updated_at as string,
+        completedAt: row.completed_at as string | undefined,
+        errorMessage: row.error_message as string | undefined
+      };
+
+      return context;
+
+    } catch (error) {
+      logger.error('Error loading workflow context by ID', {
+        userId,
+        workflowId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  }
+
+  /**
    * Obtenir toutes les entrées de la base de connaissances
    */
   async getAllKnowledgeEntries(): Promise<KnowledgeEntry[]> {

@@ -130,22 +130,30 @@ class ConversationService {
                 }
             }
             if (stepResult.completed) {
-                const finalContext = await this.workflowEngine.getActiveWorkflow(user.id);
                 logger_1.logger.info('Workflow terminé avec succès', {
                     userId: user.id,
-                    workflowId: workflowContext.workflowId,
-                    finalStatus: finalContext?.status
+                    workflowId: workflowContext.workflowId
                 });
-                if (workflowContext.workflowId === 'name_collection' && finalContext?.data.user_name) {
-                    logger_1.logger.info('Sauvegarde du nom de l\'utilisateur', {
-                        userId: user.id,
-                        userName: finalContext.data.user_name
-                    });
-                    await this.databaseService.updateUserState(user.id, 'active', finalContext.data.user_name);
-                    logger_1.logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
-                        userId: user.id,
-                        userName: finalContext.data.user_name
-                    });
+                if (workflowContext.workflowId === 'name_collection') {
+                    const savedContext = await this.databaseService.getWorkflowContextById(user.id, 'name_collection');
+                    if (savedContext && savedContext.data.user_name) {
+                        logger_1.logger.info('Sauvegarde du nom de l\'utilisateur', {
+                            userId: user.id,
+                            userName: savedContext.data.user_name
+                        });
+                        await this.databaseService.updateUserState(user.id, 'active', savedContext.data.user_name);
+                        logger_1.logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
+                            userId: user.id,
+                            userName: savedContext.data.user_name
+                        });
+                    }
+                    else {
+                        logger_1.logger.warn('Impossible de récupérer le nom depuis le contexte du workflow', {
+                            userId: user.id,
+                            hasContext: !!savedContext,
+                            hasUserName: savedContext?.data.user_name
+                        });
+                    }
                 }
             }
             return stepResult.message;

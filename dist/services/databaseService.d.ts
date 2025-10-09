@@ -22,6 +22,7 @@ export declare class DatabaseService implements IDatabaseService {
     close(): Promise<void>;
     saveWorkflowContext(userId: number, context: WorkflowContext): Promise<void>;
     loadWorkflowContext(userId: number): Promise<WorkflowContext | null>;
+    getWorkflowContextById(userId: number, workflowId: string): Promise<WorkflowContext | null>;
     getAllKnowledgeEntries(): Promise<KnowledgeEntry[]>;
     getKnowledgeByCategory(category: string): Promise<KnowledgeEntry[]>;
 }
