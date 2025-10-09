@@ -309,10 +309,19 @@ class EnhancedKnowledgeService {
     extractKeywords(text) {
         const stopWords = new Set([
             'le', 'la', 'les', 'un', 'une', 'des', 'de', 'du', 'et', 'ou', 'mais',
-            'pour', 'sur', 'dans', 'avec', 'sans', 'est', 'sont', 'à', 'au', 'aux',
-            'ce', 'cet', 'cette', 'ces', 'mon', 'ton', 'son', 'ma', 'ta', 'sa',
-            'mes', 'tes', 'ses', 'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles',
-            'que', 'qui', 'quoi', 'dont', 'où', 'comment', 'pourquoi', 'quand'
+            'pour', 'sur', 'dans', 'avec', 'sans', 'par', 'chez', 'vers', 'sous',
+            'est', 'sont', 'être', 'avoir', 'fait', 'faire', 'dire', 'peut', 'veut',
+            'parle', 'parler', 'explique', 'expliquer', 'donne', 'donner', 'dis', 'dit',
+            'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles', 'me', 'te', 'se',
+            'moi', 'toi', 'lui', 'leur', 'mon', 'ton', 'son', 'ma', 'ta', 'sa',
+            'mes', 'tes', 'ses', 'notre', 'votre', 'nos', 'vos', 'leurs',
+            'ce', 'cet', 'cette', 'ces', 'quel', 'quelle', 'quels', 'quelles',
+            'que', 'qui', 'quoi', 'dont', 'où', 'comment', 'pourquoi', 'quand',
+            'car', 'donc', 'or', 'ni', 'puis', 'alors', 'ainsi', 'aussi', 'encore',
+            'plus', 'moins', 'très', 'tout', 'tous', 'toute', 'toutes', 'même', 'autre',
+            'bien', 'encore', 'déjà', 'jamais', 'toujours', 'souvent', 'parfois',
+            'voici', 'voilà', 's\'il', 'sil', 'merci', 'bonjour', 'bonsoir', 'salut',
+            'svp', 'stp', 'peux', 'pouvez', 'pourrait', 'veux', 'voudrais'
         ]);
         return text
             .toLowerCase()

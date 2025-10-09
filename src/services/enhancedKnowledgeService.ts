@@ -465,13 +465,30 @@ export class EnhancedKnowledgeService {
    * Extraire les mots-clés d'un texte
    */
   private extractKeywords(text: string): string[] {
-    // Mots vides français à ignorer
+    // Mots vides français à ignorer (stop words)
     const stopWords = new Set([
+      // Articles
       'le', 'la', 'les', 'un', 'une', 'des', 'de', 'du', 'et', 'ou', 'mais',
-      'pour', 'sur', 'dans', 'avec', 'sans', 'est', 'sont', 'à', 'au', 'aux',
-      'ce', 'cet', 'cette', 'ces', 'mon', 'ton', 'son', 'ma', 'ta', 'sa',
-      'mes', 'tes', 'ses', 'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles',
-      'que', 'qui', 'quoi', 'dont', 'où', 'comment', 'pourquoi', 'quand'
+      // Prépositions
+      'pour', 'sur', 'dans', 'avec', 'sans', 'par', 'chez', 'vers', 'sous',
+      // Verbes courants
+      'est', 'sont', 'être', 'avoir', 'fait', 'faire', 'dire', 'peut', 'veut',
+      'parle', 'parler', 'explique', 'expliquer', 'donne', 'donner', 'dis', 'dit',
+      // Pronoms
+      'je', 'tu', 'il', 'elle', 'nous', 'vous', 'ils', 'elles', 'me', 'te', 'se',
+      'moi', 'toi', 'lui', 'leur', 'mon', 'ton', 'son', 'ma', 'ta', 'sa',
+      'mes', 'tes', 'ses', 'notre', 'votre', 'nos', 'vos', 'leurs',
+      // Déterminants
+      'ce', 'cet', 'cette', 'ces', 'quel', 'quelle', 'quels', 'quelles',
+      // Mots interrogatifs et conjonctions
+      'que', 'qui', 'quoi', 'dont', 'où', 'comment', 'pourquoi', 'quand',
+      'car', 'donc', 'or', 'ni', 'puis', 'alors', 'ainsi', 'aussi', 'encore',
+      // Locutions courantes
+      'plus', 'moins', 'très', 'tout', 'tous', 'toute', 'toutes', 'même', 'autre',
+      'bien', 'encore', 'déjà', 'jamais', 'toujours', 'souvent', 'parfois',
+      // Connecteurs et formules de politesse
+      'voici', 'voilà', 's\'il', 'sil', 'merci', 'bonjour', 'bonsoir', 'salut',
+      'svp', 'stp', 'peux', 'pouvez', 'pourrait', 'veux', 'voudrais'
     ]);
 
     return text
