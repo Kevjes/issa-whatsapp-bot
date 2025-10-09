@@ -312,9 +312,11 @@ export class WorkflowEngine implements IWorkflowEngine {
     userInput: string,
     workflow: WorkflowDefinition
   ): Promise<WorkflowStepResult> {
-    // Si c'est le premier passage dans cet état, afficher le prompt
+    // Si c'est le premier passage dans cet état ET qu'il y a un prompt, l'afficher
     const lastStep = context.history[context.history.length - 1];
-    if (!lastStep || lastStep.stateId !== state.id) {
+    const isFirstPassage = !lastStep || lastStep.stateId !== state.id;
+
+    if (isFirstPassage && state.prompt) {
       const prompt = await this.renderPrompt(state.prompt, context.data);
       return {
         success: true,

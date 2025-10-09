@@ -190,7 +190,8 @@ class WorkflowEngine {
     }
     async handleInputState(state, context, userInput, workflow) {
         const lastStep = context.history[context.history.length - 1];
-        if (!lastStep || lastStep.stateId !== state.id) {
+        const isFirstPassage = !lastStep || lastStep.stateId !== state.id;
+        if (isFirstPassage && state.prompt) {
             const prompt = await this.renderPrompt(state.prompt, context.data);
             return {
                 success: true,
