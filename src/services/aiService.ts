@@ -24,7 +24,9 @@ export class AIService {
   }
 
   private getDefaultModel(): string {
-    return config.ai.provider === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat';
+    if (config.ai.provider === 'openai') return 'gpt-3.5-turbo';
+    if (config.ai.provider === 'gemini') return 'gemini-2.5-flash';
+    return 'deepseek-chat';
   }
 
   /**
@@ -46,6 +48,8 @@ export class AIService {
       let aiResponse: AIResponse;
       if (this.aiConfig.provider === 'openai') {
         aiResponse = await this.callOpenAI(messages);
+      } else if (this.aiConfig.provider === 'gemini') {
+        aiResponse = await this.callGemini(messages);
       } else {
         aiResponse = await this.callDeepSeek(messages);
       }
@@ -195,6 +199,68 @@ Je reste à votre disposition pour toute question sur nos produits et services d
 
     } catch (error: unknown) {
       logger.error('Erreur API DeepSeek', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Appeler l'API Google Gemini
+   */
+  private async callGemini(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<AIResponse> {
+    try {
+      // Gemini utilise un format différent: systemInstruction séparé + contents
+      const systemMessage = messages.find(m => m.role === 'system');
+      const conversationMessages = messages.filter(m => m.role !== 'system');
+
+      // Convertir les messages au format Gemini
+      const contents = conversationMessages.map(msg => ({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      }));
+
+      const requestData: any = {
+        contents,
+        generationConfig: {
+          temperature: 0.7,
+          maxOutputTokens: 1000,
+          topP: 0.95
+        }
+      };
+
+      // Ajouter systemInstruction si présent
+      if (systemMessage) {
+        requestData.systemInstruction = {
+          parts: [{ text: systemMessage.content }]
+        };
+      }
+
+      // L'URL Gemini nécessite l'API key dans l'URL
+      const endpoint = `/models/${this.aiConfig.model}:generateContent?key=${this.aiConfig.apiKey}`;
+
+      const response = await this.httpClient.post(endpoint, requestData);
+
+      const data = response.data as any;
+
+      if (data.candidates && data.candidates.length > 0) {
+        const candidate = data.candidates[0];
+        const content = candidate.content?.parts?.[0]?.text;
+
+        if (content) {
+          return {
+            success: true,
+            content,
+            provider: 'gemini',
+            tokensUsed: data.usageMetadata?.totalTokenCount
+          };
+        } else {
+          throw new Error('Aucun contenu dans la réponse Gemini');
+        }
+      } else {
+        throw new Error('Aucune réponse reçue de Gemini');
+      }
+
+    } catch (error: unknown) {
+      logger.error('Erreur API Gemini', { error });
       throw error;
     }
   }
