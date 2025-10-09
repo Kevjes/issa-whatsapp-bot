@@ -108,7 +108,7 @@ class ConversationService {
                 return stepResult.message || stepResult.error || 'Une erreur est survenue.';
             }
             let maxAutoSteps = 5;
-            while (!stepResult.message && !stepResult.completed && maxAutoSteps > 0) {
+            while (!stepResult.message && !stepResult.completed && !stepResult.stayInCurrentState && maxAutoSteps > 0) {
                 logger_1.logger.info('Exécution automatique de l\'étape suivante (pas de message)', {
                     userId: user.id,
                     workflowId: workflowContext.workflowId,

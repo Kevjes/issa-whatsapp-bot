@@ -147,8 +147,9 @@ export class ConversationService {
 
       // Si le message est vide et que le workflow n'est pas terminé, continuer automatiquement
       // Cela permet d'exécuter les états de traitement (processing) sans interaction utilisateur
+      // Ne pas continuer si l'état demande à rester en place (stayInCurrentState)
       let maxAutoSteps = 5; // Limite pour éviter les boucles infinies
-      while (!stepResult.message && !stepResult.completed && maxAutoSteps > 0) {
+      while (!stepResult.message && !stepResult.completed && !stepResult.stayInCurrentState && maxAutoSteps > 0) {
         logger.info('Exécution automatique de l\'étape suivante (pas de message)', {
           userId: user.id,
           workflowId: workflowContext.workflowId,
