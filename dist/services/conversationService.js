@@ -129,13 +129,23 @@ class ConversationService {
                     return stepResult.message || stepResult.error || 'Une erreur est survenue.';
                 }
             }
-            if (stepResult.context && stepResult.context.status === 'completed') {
+            if (stepResult.completed) {
+                const finalContext = await this.workflowEngine.getActiveWorkflow(user.id);
                 logger_1.logger.info('Workflow terminé avec succès', {
                     userId: user.id,
-                    workflowId: workflowContext.workflowId
+                    workflowId: workflowContext.workflowId,
+                    finalStatus: finalContext?.status
                 });
-                if (workflowContext.workflowId === 'name_collection' && stepResult.context.data.user_name) {
-                    await this.databaseService.updateUserState(user.id, 'active', stepResult.context.data.user_name);
+                if (workflowContext.workflowId === 'name_collection' && finalContext?.data.user_name) {
+                    logger_1.logger.info('Sauvegarde du nom de l\'utilisateur', {
+                        userId: user.id,
+                        userName: finalContext.data.user_name
+                    });
+                    await this.databaseService.updateUserState(user.id, 'active', finalContext.data.user_name);
+                    logger_1.logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
+                        userId: user.id,
+                        userName: finalContext.data.user_name
+                    });
                 }
             }
             return stepResult.message;
