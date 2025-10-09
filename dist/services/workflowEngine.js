@@ -213,14 +213,16 @@ class WorkflowEngine {
                 success: true,
                 message: '',
                 data: validationResult.data,
-                completed: false
+                completed: false,
+                stayInCurrentState: false
             };
         }
         return {
             success: true,
             message: '',
             data: { [state.id]: userInput },
-            completed: false
+            completed: false,
+            stayInCurrentState: false
         };
     }
     async handleValidationState(state, context, userInput) {

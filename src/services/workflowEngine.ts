@@ -342,7 +342,8 @@ export class WorkflowEngine implements IWorkflowEngine {
         success: true,
         message: '', // Will be set by next state
         data: validationResult.data,
-        completed: false
+        completed: false,
+        stayInCurrentState: false // Passer à l'état suivant
       };
     }
 
@@ -351,7 +352,8 @@ export class WorkflowEngine implements IWorkflowEngine {
       success: true,
       message: '', // Will be set by next state
       data: { [state.id]: userInput },
-      completed: false
+      completed: false,
+      stayInCurrentState: false // Passer à l'état suivant
     };
   }
 
