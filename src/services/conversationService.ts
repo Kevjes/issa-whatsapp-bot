@@ -404,11 +404,18 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
 
           logger.info('Knowledge context for AI', {
             contextLength: knowledgeContext.length,
-            relevantEntries: formattedContext.relevantEntries.length
+            relevantEntries: formattedContext.relevantEntries.length,
+            contextPreview: knowledgeContext.substring(0, 300)
           });
 
           // Créer le prompt système avec contexte
           const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
+
+          logger.info('System prompt created', {
+            promptLength: systemPrompt.length,
+            hasKnowledgeContext: systemPrompt.includes('CONNAISSANCES DISPONIBLES'),
+            contextInPrompt: systemPrompt.includes(searchResults.entries[0]?.title || 'N/A')
+          });
 
           // Générer la réponse avec l'IA
           return await this.aiService.generateResponse(
