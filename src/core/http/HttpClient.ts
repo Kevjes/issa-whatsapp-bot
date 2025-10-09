@@ -63,9 +63,12 @@ export class HttpClient implements IHttpClient {
     // Intercepteur de requête pour ajouter les headers par défaut
     this.axiosInstance.interceptors.request.use(
       async (config) => {
+        // Sauvegarder les headers de la requête avant de les écraser
+        const requestHeaders = { ...config.headers };
+
         // Résoudre les headers par défaut
         const resolvedHeaders: Record<string, string> = {};
-        
+
         for (const [key, value] of Object.entries(this.defaultHeaders)) {
           if (typeof value === 'function') {
             try {
@@ -78,8 +81,8 @@ export class HttpClient implements IHttpClient {
           }
         }
 
-        // Fusionner avec les headers de la requête
-        Object.assign(config.headers, resolvedHeaders);
+        // Fusionner: headers par défaut d'abord, puis headers de la requête (priorité)
+        Object.assign(config.headers, resolvedHeaders, requestHeaders);
 
         // Logger la requête
         logger.debug('HTTP request sent', {
