@@ -25,5 +25,18 @@ export declare class DatabaseService implements IDatabaseService {
     getWorkflowContextById(userId: number, workflowId: string): Promise<WorkflowContext | null>;
     getAllKnowledgeEntries(): Promise<KnowledgeEntry[]>;
     getKnowledgeByCategory(category: string): Promise<KnowledgeEntry[]>;
+    saveEmbedding(knowledgeId: number, embedding: number[], modelName: string): Promise<void>;
+    getEmbedding(knowledgeId: number): Promise<number[] | null>;
+    getAllEmbeddings(): Promise<Array<{
+        knowledgeId: number;
+        embedding: number[];
+    }>>;
+    deleteEmbedding(knowledgeId: number): Promise<void>;
+    hasEmbedding(knowledgeId: number): Promise<boolean>;
+    getEmbeddingsStats(): Promise<{
+        total: number;
+        modelName: string | null;
+        vectorDimension: number | null;
+    }>;
 }
 //# sourceMappingURL=databaseService.d.ts.map

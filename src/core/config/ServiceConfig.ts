@@ -111,6 +111,7 @@ export class ServiceConfig {
     const { IntentClassifier } = await import('../../services/intentClassifier');
     const { ValidationService } = await import('../../services/validationService');
     const { EnhancedKnowledgeService } = await import('../../services/enhancedKnowledgeService');
+    const { VectorSearchService } = await import('../../services/vectorSearchService');
     const { workflows, workflowHandlers } = await import('../../workflows');
 
     // Service WhatsApp
@@ -148,10 +149,19 @@ export class ServiceConfig {
       return new IntentClassifier();
     });
 
+    // Vector Search Service
+    container.register(TOKENS.VECTOR_SEARCH_SERVICE, () => {
+      return new VectorSearchService();
+    });
+
     // Enhanced Knowledge Service
     container.register(TOKENS.ENHANCED_KNOWLEDGE_SERVICE, async () => {
       const databaseService = await container.resolve(TOKENS.DATABASE_SERVICE);
-      return new EnhancedKnowledgeService(databaseService as InstanceType<typeof DatabaseService>);
+      const vectorSearchService = await container.resolve(TOKENS.VECTOR_SEARCH_SERVICE);
+      return new EnhancedKnowledgeService(
+        databaseService as InstanceType<typeof DatabaseService>,
+        vectorSearchService as InstanceType<typeof VectorSearchService>
+      );
     });
 
     // Workflow Engine

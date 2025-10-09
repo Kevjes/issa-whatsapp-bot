@@ -36,6 +36,7 @@ export declare const TOKENS: {
     readonly INTENT_CLASSIFIER: symbol;
     readonly VALIDATION_SERVICE: symbol;
     readonly ENHANCED_KNOWLEDGE_SERVICE: symbol;
+    readonly VECTOR_SEARCH_SERVICE: symbol;
 };
 export declare const container: Container;
 //# sourceMappingURL=Container.d.ts.map

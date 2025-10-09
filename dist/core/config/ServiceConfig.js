@@ -97,6 +97,7 @@ class ServiceConfig {
         const { IntentClassifier } = await Promise.resolve().then(() => __importStar(require('../../services/intentClassifier')));
         const { ValidationService } = await Promise.resolve().then(() => __importStar(require('../../services/validationService')));
         const { EnhancedKnowledgeService } = await Promise.resolve().then(() => __importStar(require('../../services/enhancedKnowledgeService')));
+        const { VectorSearchService } = await Promise.resolve().then(() => __importStar(require('../../services/vectorSearchService')));
         const { workflows, workflowHandlers } = await Promise.resolve().then(() => __importStar(require('../../workflows')));
         Container_1.container.register(Container_1.TOKENS.WHATSAPP_SERVICE, async () => {
             const httpClient = await Container_1.container.resolve(Container_1.TOKENS.WHATSAPP_HTTP_CLIENT);
@@ -119,9 +120,13 @@ class ServiceConfig {
         Container_1.container.register(Container_1.TOKENS.INTENT_CLASSIFIER, () => {
             return new IntentClassifier();
         });
+        Container_1.container.register(Container_1.TOKENS.VECTOR_SEARCH_SERVICE, () => {
+            return new VectorSearchService();
+        });
         Container_1.container.register(Container_1.TOKENS.ENHANCED_KNOWLEDGE_SERVICE, async () => {
             const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);
-            return new EnhancedKnowledgeService(databaseService);
+            const vectorSearchService = await Container_1.container.resolve(Container_1.TOKENS.VECTOR_SEARCH_SERVICE);
+            return new EnhancedKnowledgeService(databaseService, vectorSearchService);
         });
         Container_1.container.register(Container_1.TOKENS.WORKFLOW_ENGINE, async () => {
             const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);

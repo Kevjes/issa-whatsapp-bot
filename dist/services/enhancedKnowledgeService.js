@@ -7,7 +7,7 @@ exports.EnhancedKnowledgeService = void 0;
 const logger_1 = require("../utils/logger");
 const node_cache_1 = __importDefault(require("node-cache"));
 class EnhancedKnowledgeService {
-    constructor(databaseService, config) {
+    constructor(databaseService, vectorSearchService, config) {
         this.intentToCategoryMap = new Map([
             ['product_inquiry', ['roi_products', 'takaful_products', 'faq']],
             ['product_purchase', ['roi_products', 'takaful_products', 'pricing']],
@@ -29,11 +29,13 @@ class EnhancedKnowledgeService {
             ['contact', 0.8]
         ]);
         this.databaseService = databaseService;
+        this.vectorSearchService = vectorSearchService;
         this.config = {
             strategies: config?.strategies || [
-                { name: 'keyword', method: 'keyword', weight: 0.4, enabled: true },
-                { name: 'fuzzy', method: 'fuzzy', weight: 0.3, enabled: true },
-                { name: 'intent_based', method: 'intent_based', weight: 0.3, enabled: true }
+                { name: 'keyword', method: 'keyword', weight: 0.3, enabled: true },
+                { name: 'fuzzy', method: 'fuzzy', weight: 0.2, enabled: true },
+                { name: 'intent_based', method: 'intent_based', weight: 0.2, enabled: true },
+                { name: 'semantic', method: 'semantic', weight: 0.3, enabled: true }
             ],
             defaultMaxResults: config?.defaultMaxResults || 5,
             defaultMinRelevance: config?.defaultMinRelevance || 0.3,
@@ -124,6 +126,10 @@ class EnhancedKnowledgeService {
             const intentResults = await this.intentBasedSearch(query);
             this.mergeResults(allResults, intentResults, this.getStrategyWeight('intent_based'));
         }
+        if (this.isStrategyEnabled('semantic')) {
+            const semanticResults = await this.semanticSearch(query);
+            this.mergeResults(allResults, semanticResults, this.getStrategyWeight('semantic'));
+        }
         const sortedResults = Array.from(allResults.values())
             .sort((a, b) => b.relevanceScore - a.relevanceScore)
             .filter(r => r.relevanceScore >= (query.minRelevance || this.config.defaultMinRelevance));
@@ -189,6 +195,51 @@ class EnhancedKnowledgeService {
         }
         catch (error) {
             logger_1.logger.error('Error in intent-based search', { error });
+            return [];
+        }
+    }
+    async semanticSearch(query) {
+        try {
+            const queryEmbedding = await this.vectorSearchService.generateEmbedding(query.text);
+            const allEmbeddings = await this.databaseService.getAllEmbeddings();
+            if (allEmbeddings.length === 0) {
+                logger_1.logger.warn('No embeddings found in database');
+                return [];
+            }
+            const similarities = [];
+            for (const { knowledgeId, embedding } of allEmbeddings) {
+                const similarity = this.vectorSearchService.cosineSimilarity(queryEmbedding, embedding);
+                similarities.push({ knowledgeId, similarity });
+            }
+            similarities.sort((a, b) => b.similarity - a.similarity);
+            const results = [];
+            const topSimilarities = similarities.slice(0, query.maxResults || 10);
+            const allEntries = await this.databaseService.getAllKnowledgeEntries();
+            const entriesMap = new Map(allEntries.map(e => [e.id, e]));
+            for (const { knowledgeId, similarity } of topSimilarities) {
+                if (similarity < 0.3)
+                    continue;
+                const entry = entriesMap.get(knowledgeId);
+                if (entry) {
+                    results.push({
+                        ...entry,
+                        relevanceScore: similarity,
+                        matchedKeywords: this.extractKeywords(query.text),
+                        reason: 'semantic_similarity'
+                    });
+                }
+            }
+            if (this.config.enableLogging) {
+                logger_1.logger.debug('Semantic search completed', {
+                    query: query.text.substring(0, 50),
+                    resultsFound: results.length,
+                    topSimilarity: similarities[0]?.similarity
+                });
+            }
+            return results;
+        }
+        catch (error) {
+            logger_1.logger.error('Error in semantic search', { error });
             return [];
         }
     }

@@ -244,6 +244,20 @@ class DatabaseService {
             await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_user_id ON workflow_contexts(user_id)');
             await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_status ON workflow_contexts(status)');
             await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_workflow_id ON workflow_contexts(workflow_id)');
+            await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          knowledge_id INTEGER NOT NULL UNIQUE,
+          embedding BLOB NOT NULL,
+          model_name TEXT NOT NULL,
+          vector_dimension INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (knowledge_id) REFERENCES knowledge_base (id) ON DELETE CASCADE
+        )
+      `);
+            await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_knowledge_id ON knowledge_embeddings(knowledge_id)');
+            await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_model ON knowledge_embeddings(model_name)');
             logger_1.logger.info('Tables SQLite créées avec succès');
         }
         catch (error) {
@@ -683,6 +697,106 @@ class DatabaseService {
         catch (error) {
             logger_1.logger.error('Error getting knowledge by category', { category, error });
             return [];
+        }
+    }
+    async saveEmbedding(knowledgeId, embedding, modelName) {
+        await this.ensureInitialized();
+        try {
+            const buffer = Buffer.from(new Float32Array(embedding).buffer);
+            const existing = await this.getQuery('SELECT id FROM knowledge_embeddings WHERE knowledge_id = ?', [knowledgeId]);
+            if (existing) {
+                await this.runQuery(`UPDATE knowledge_embeddings
+           SET embedding = ?, model_name = ?, vector_dimension = ?, updated_at = datetime('now')
+           WHERE knowledge_id = ?`, [buffer, modelName, embedding.length, knowledgeId]);
+            }
+            else {
+                await this.runQuery(`INSERT INTO knowledge_embeddings (knowledge_id, embedding, model_name, vector_dimension)
+           VALUES (?, ?, ?, ?)`, [knowledgeId, buffer, modelName, embedding.length]);
+            }
+            logger_1.logger.debug('Embedding sauvegardé', {
+                knowledgeId,
+                dimension: embedding.length,
+                model: modelName
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error saving embedding', {
+                knowledgeId,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            throw error;
+        }
+    }
+    async getEmbedding(knowledgeId) {
+        await this.ensureInitialized();
+        try {
+            const row = await this.getQuery('SELECT embedding, vector_dimension FROM knowledge_embeddings WHERE knowledge_id = ?', [knowledgeId]);
+            if (!row) {
+                return null;
+            }
+            const buffer = row.embedding;
+            const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+            return Array.from(float32Array);
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting embedding', { knowledgeId, error });
+            return null;
+        }
+    }
+    async getAllEmbeddings() {
+        await this.ensureInitialized();
+        try {
+            const rows = await this.allQuery('SELECT knowledge_id, embedding FROM knowledge_embeddings');
+            return rows.map(row => {
+                const buffer = row.embedding;
+                const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+                return {
+                    knowledgeId: row.knowledge_id,
+                    embedding: Array.from(float32Array)
+                };
+            });
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting all embeddings', { error });
+            return [];
+        }
+    }
+    async deleteEmbedding(knowledgeId) {
+        await this.ensureInitialized();
+        try {
+            await this.runQuery('DELETE FROM knowledge_embeddings WHERE knowledge_id = ?', [knowledgeId]);
+            logger_1.logger.debug('Embedding supprimé', { knowledgeId });
+        }
+        catch (error) {
+            logger_1.logger.error('Error deleting embedding', { knowledgeId, error });
+            throw error;
+        }
+    }
+    async hasEmbedding(knowledgeId) {
+        await this.ensureInitialized();
+        try {
+            const row = await this.getQuery('SELECT 1 FROM knowledge_embeddings WHERE knowledge_id = ?', [knowledgeId]);
+            return !!row;
+        }
+        catch (error) {
+            logger_1.logger.error('Error checking embedding existence', { knowledgeId, error });
+            return false;
+        }
+    }
+    async getEmbeddingsStats() {
+        await this.ensureInitialized();
+        try {
+            const countRow = await this.getQuery('SELECT COUNT(*) as count FROM knowledge_embeddings');
+            const metaRow = await this.getQuery('SELECT model_name, vector_dimension FROM knowledge_embeddings LIMIT 1');
+            return {
+                total: countRow?.count || 0,
+                modelName: metaRow?.model_name || null,
+                vectorDimension: metaRow?.vector_dimension || null
+            };
+        }
+        catch (error) {
+            logger_1.logger.error('Error getting embeddings stats', { error });
+            return { total: 0, modelName: null, vectorDimension: null };
         }
     }
 }

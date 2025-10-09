@@ -83,6 +83,7 @@ exports.TOKENS = {
     INTENT_CLASSIFIER: Symbol('IntentClassifier'),
     VALIDATION_SERVICE: Symbol('ValidationService'),
     ENHANCED_KNOWLEDGE_SERVICE: Symbol('EnhancedKnowledgeService'),
+    VECTOR_SEARCH_SERVICE: Symbol('VectorSearchService'),
 };
 exports.container = Container.getInstance();
 //# sourceMappingURL=Container.js.map

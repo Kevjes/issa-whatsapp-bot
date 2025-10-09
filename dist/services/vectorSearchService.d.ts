@@ -11,7 +11,7 @@ export declare class VectorSearchService {
     initialize(): Promise<void>;
     generateEmbedding(text: string): Promise<number[]>;
     precomputeEmbeddings(entries: KnowledgeBase[]): Promise<void>;
-    private cosineSimilarity;
+    cosineSimilarity(vecA: number[], vecB: number[]): number;
     searchSemantic(query: string, allEntries: KnowledgeBase[], topK?: number): Promise<SearchResult[]>;
     getEmbedding(entryId: number): number[] | undefined;
     setEmbedding(entryId: number, entry: KnowledgeBase): Promise<void>;

@@ -151,7 +151,7 @@ export class VectorSearchService {
   /**
    * Calculer la similarité cosinus entre deux vecteurs
    */
-  private cosineSimilarity(vecA: number[], vecB: number[]): number {
+  public cosineSimilarity(vecA: number[], vecB: number[]): number {
     if (vecA.length !== vecB.length) {
       throw new Error('Vecteurs de tailles différentes');
     }

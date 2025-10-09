@@ -268,6 +268,24 @@ export class DatabaseService implements IDatabaseService {
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_status ON workflow_contexts(status)');
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_workflow_id ON workflow_contexts(workflow_id)');
 
+      // Table pour stocker les embeddings vectoriels
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          knowledge_id INTEGER NOT NULL UNIQUE,
+          embedding BLOB NOT NULL,
+          model_name TEXT NOT NULL,
+          vector_dimension INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (knowledge_id) REFERENCES knowledge_base (id) ON DELETE CASCADE
+        )
+      `);
+
+      // Index pour optimiser les requêtes d'embeddings
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_knowledge_id ON knowledge_embeddings(knowledge_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_model ON knowledge_embeddings(model_name)');
+
       logger.info('Tables SQLite créées avec succès');
     } catch (error) {
       logger.error('Erreur lors de la création des tables SQLite', { error });
@@ -920,6 +938,183 @@ export class DatabaseService implements IDatabaseService {
     } catch (error) {
       logger.error('Error getting knowledge by category', { category, error });
       return [];
+    }
+  }
+
+  /**
+   * Sauvegarder un embedding pour une entrée de connaissance
+   */
+  async saveEmbedding(
+    knowledgeId: number,
+    embedding: number[],
+    modelName: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      // Convertir le tableau en Buffer pour le stockage BLOB
+      const buffer = Buffer.from(new Float32Array(embedding).buffer);
+
+      // Vérifier si un embedding existe déjà
+      const existing = await this.getQuery(
+        'SELECT id FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      if (existing) {
+        // Mettre à jour
+        await this.runQuery(
+          `UPDATE knowledge_embeddings
+           SET embedding = ?, model_name = ?, vector_dimension = ?, updated_at = datetime('now')
+           WHERE knowledge_id = ?`,
+          [buffer, modelName, embedding.length, knowledgeId]
+        );
+      } else {
+        // Insérer
+        await this.runQuery(
+          `INSERT INTO knowledge_embeddings (knowledge_id, embedding, model_name, vector_dimension)
+           VALUES (?, ?, ?, ?)`,
+          [knowledgeId, buffer, modelName, embedding.length]
+        );
+      }
+
+      logger.debug('Embedding sauvegardé', {
+        knowledgeId,
+        dimension: embedding.length,
+        model: modelName
+      });
+
+    } catch (error) {
+      logger.error('Error saving embedding', {
+        knowledgeId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer un embedding par knowledge_id
+   */
+  async getEmbedding(knowledgeId: number): Promise<number[] | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT embedding, vector_dimension FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      // Convertir le BLOB en tableau de nombres
+      const buffer = row.embedding as Buffer;
+      const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+      return Array.from(float32Array);
+
+    } catch (error) {
+      logger.error('Error getting embedding', { knowledgeId, error });
+      return null;
+    }
+  }
+
+  /**
+   * Récupérer tous les embeddings
+   */
+  async getAllEmbeddings(): Promise<Array<{ knowledgeId: number; embedding: number[] }>> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT knowledge_id, embedding FROM knowledge_embeddings'
+      );
+
+      return rows.map(row => {
+        const buffer = row.embedding as Buffer;
+        const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+
+        return {
+          knowledgeId: row.knowledge_id as number,
+          embedding: Array.from(float32Array)
+        };
+      });
+
+    } catch (error) {
+      logger.error('Error getting all embeddings', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Supprimer un embedding
+   */
+  async deleteEmbedding(knowledgeId: number): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      await this.runQuery(
+        'DELETE FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      logger.debug('Embedding supprimé', { knowledgeId });
+
+    } catch (error) {
+      logger.error('Error deleting embedding', { knowledgeId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifier si un embedding existe
+   */
+  async hasEmbedding(knowledgeId: number): Promise<boolean> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT 1 FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      return !!row;
+
+    } catch (error) {
+      logger.error('Error checking embedding existence', { knowledgeId, error });
+      return false;
+    }
+  }
+
+  /**
+   * Obtenir les statistiques des embeddings
+   */
+  async getEmbeddingsStats(): Promise<{
+    total: number;
+    modelName: string | null;
+    vectorDimension: number | null;
+  }> {
+    await this.ensureInitialized();
+
+    try {
+      const countRow = await this.getQuery(
+        'SELECT COUNT(*) as count FROM knowledge_embeddings'
+      );
+
+      const metaRow = await this.getQuery(
+        'SELECT model_name, vector_dimension FROM knowledge_embeddings LIMIT 1'
+      );
+
+      return {
+        total: (countRow?.count as number) || 0,
+        modelName: metaRow?.model_name as string || null,
+        vectorDimension: metaRow?.vector_dimension as number || null
+      };
+
+    } catch (error) {
+      logger.error('Error getting embeddings stats', { error });
+      return { total: 0, modelName: null, vectorDimension: null };
     }
   }
 }

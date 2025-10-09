@@ -4,6 +4,7 @@
  */
 
 import { DatabaseService } from './databaseService';
+import { VectorSearchService } from './vectorSearchService';
 import {
   KnowledgeEntry,
   KnowledgeSearchQuery,
@@ -20,6 +21,7 @@ import NodeCache from 'node-cache';
 
 export class EnhancedKnowledgeService {
   private databaseService: DatabaseService;
+  private vectorSearchService: VectorSearchService;
   private cache: NodeCache;
   private config: KnowledgeSearchConfig;
 
@@ -47,14 +49,20 @@ export class EnhancedKnowledgeService {
     ['contact', 0.8]
   ]);
 
-  constructor(databaseService: DatabaseService, config?: Partial<KnowledgeSearchConfig>) {
+  constructor(
+    databaseService: DatabaseService,
+    vectorSearchService: VectorSearchService,
+    config?: Partial<KnowledgeSearchConfig>
+  ) {
     this.databaseService = databaseService;
+    this.vectorSearchService = vectorSearchService;
 
     this.config = {
       strategies: config?.strategies || [
-        { name: 'keyword', method: 'keyword', weight: 0.4, enabled: true },
-        { name: 'fuzzy', method: 'fuzzy', weight: 0.3, enabled: true },
-        { name: 'intent_based', method: 'intent_based', weight: 0.3, enabled: true }
+        { name: 'keyword', method: 'keyword', weight: 0.3, enabled: true },
+        { name: 'fuzzy', method: 'fuzzy', weight: 0.2, enabled: true },
+        { name: 'intent_based', method: 'intent_based', weight: 0.2, enabled: true },
+        { name: 'semantic', method: 'semantic', weight: 0.3, enabled: true }
       ],
       defaultMaxResults: config?.defaultMaxResults || 5,
       defaultMinRelevance: config?.defaultMinRelevance || 0.3,
@@ -179,6 +187,12 @@ export class EnhancedKnowledgeService {
       this.mergeResults(allResults, intentResults, this.getStrategyWeight('intent_based'));
     }
 
+    // 4. Recherche sémantique (embeddings)
+    if (this.isStrategyEnabled('semantic')) {
+      const semanticResults = await this.semanticSearch(query);
+      this.mergeResults(allResults, semanticResults, this.getStrategyWeight('semantic'));
+    }
+
     // Trier par score de pertinence
     const sortedResults = Array.from(allResults.values())
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
@@ -277,6 +291,72 @@ export class EnhancedKnowledgeService {
 
     } catch (error) {
       logger.error('Error in intent-based search', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Recherche sémantique par embeddings
+   */
+  private async semanticSearch(query: KnowledgeSearchQuery): Promise<ScoredKnowledgeEntry[]> {
+    try {
+      // Générer l'embedding de la requête
+      const queryEmbedding = await this.vectorSearchService.generateEmbedding(query.text);
+
+      // Récupérer tous les embeddings depuis la base
+      const allEmbeddings = await this.databaseService.getAllEmbeddings();
+
+      if (allEmbeddings.length === 0) {
+        logger.warn('No embeddings found in database');
+        return [];
+      }
+
+      // Calculer la similarité cosinus pour chaque entrée
+      const similarities: Array<{ knowledgeId: number; similarity: number }> = [];
+
+      for (const { knowledgeId, embedding } of allEmbeddings) {
+        const similarity = this.vectorSearchService.cosineSimilarity(queryEmbedding, embedding);
+        similarities.push({ knowledgeId, similarity });
+      }
+
+      // Trier par similarité décroissante
+      similarities.sort((a, b) => b.similarity - a.similarity);
+
+      // Récupérer les entrées de connaissance correspondantes
+      const results: ScoredKnowledgeEntry[] = [];
+      const topSimilarities = similarities.slice(0, query.maxResults || 10);
+
+      // Récupérer toutes les entrées une seule fois
+      const allEntries = await this.databaseService.getAllKnowledgeEntries();
+      const entriesMap = new Map(allEntries.map(e => [e.id!, e]));
+
+      for (const { knowledgeId, similarity } of topSimilarities) {
+        // Seulement si la similarité est suffisante
+        if (similarity < 0.3) continue;
+
+        const entry = entriesMap.get(knowledgeId);
+        if (entry) {
+          results.push({
+            ...entry,
+            relevanceScore: similarity,
+            matchedKeywords: this.extractKeywords(query.text),
+            reason: 'semantic_similarity'
+          } as ScoredKnowledgeEntry);
+        }
+      }
+
+      if (this.config.enableLogging) {
+        logger.debug('Semantic search completed', {
+          query: query.text.substring(0, 50),
+          resultsFound: results.length,
+          topSimilarity: similarities[0]?.similarity
+        });
+      }
+
+      return results;
+
+    } catch (error) {
+      logger.error('Error in semantic search', { error });
       return [];
     }
   }
