@@ -2,6 +2,7 @@ import { AIResponse, AIProviderConfig, OpenAIRequest, OpenAIResponse, DeepSeekRe
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { IHttpClient } from '../core/interfaces/IHttpClient';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export class AIService {
   private httpClient: IHttpClient;
@@ -204,75 +205,58 @@ Je reste à votre disposition pour toute question sur nos produits et services d
   }
 
   /**
-   * Appeler l'API Google Gemini
+   * Appeler l'API Google Gemini avec le SDK officiel
    */
   private async callGemini(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<AIResponse> {
     try {
-      // Gemini utilise un format différent: systemInstruction séparé + contents
+      // Initialiser le client Gemini avec le SDK officiel
+      const genAI = new GoogleGenerativeAI(this.aiConfig.apiKey);
+
+      // Séparer le message système des autres messages
       const systemMessage = messages.find(m => m.role === 'system');
       const conversationMessages = messages.filter(m => m.role !== 'system');
 
-      // Convertir les messages au format Gemini
-      const contents = conversationMessages.map(msg => ({
-        role: msg.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: msg.content }]
-      }));
+      // Créer le modèle avec systemInstruction si présent
+      const modelConfig: any = { model: this.aiConfig.model };
 
-      const requestData: any = {
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-          topP: 0.95
-        }
-      };
-
-      // Ajouter systemInstruction si présent
       if (systemMessage) {
-        requestData.systemInstruction = {
-          parts: [{ text: systemMessage.content }]
-        };
+        modelConfig.systemInstruction = systemMessage.content;
       }
 
-      // Endpoint Gemini (sans API key dans l'URL)
-      const endpoint = `/models/${this.aiConfig.model}:generateContent`;
+      const model = genAI.getGenerativeModel(modelConfig);
 
-      // Log pour debug
-      logger.info('Calling Gemini API', {
-        endpoint,
+      // Convertir les messages en format Gemini (concaténer user/model messages)
+      let promptText = '';
+      for (const msg of conversationMessages) {
+        if (msg.role === 'user') {
+          promptText += `Utilisateur: ${msg.content}\n\n`;
+        } else if (msg.role === 'assistant') {
+          promptText += `Assistant: ${msg.content}\n\n`;
+        }
+      }
+
+      logger.info('Calling Gemini API with SDK', {
         model: this.aiConfig.model,
-        baseUrl: this.aiConfig.baseUrl,
-        apiKeyPresent: !!this.aiConfig.apiKey,
-        apiKeyLength: this.aiConfig.apiKey?.length
+        systemInstructionPresent: !!systemMessage,
+        messageCount: conversationMessages.length
       });
 
-      // Gemini nécessite l'API key dans le header x-goog-api-key
-      const response = await this.httpClient.post(endpoint, requestData, {
-        headers: {
-          'x-goog-api-key': this.aiConfig.apiKey,
-          'Content-Type': 'application/json'
-        }
+      // Générer le contenu
+      const result = await model.generateContent(promptText);
+      const response = await result.response;
+      const content = response.text();
+
+      logger.info('Gemini response received', {
+        contentLength: content.length,
+        tokensUsed: response.usageMetadata?.totalTokenCount
       });
 
-      const data = response.data as any;
-
-      if (data.candidates && data.candidates.length > 0) {
-        const candidate = data.candidates[0];
-        const content = candidate.content?.parts?.[0]?.text;
-
-        if (content) {
-          return {
-            success: true,
-            content,
-            provider: 'gemini',
-            tokensUsed: data.usageMetadata?.totalTokenCount
-          };
-        } else {
-          throw new Error('Aucun contenu dans la réponse Gemini');
-        }
-      } else {
-        throw new Error('Aucune réponse reçue de Gemini');
-      }
+      return {
+        success: true,
+        content,
+        provider: 'gemini',
+        tokensUsed: response.usageMetadata?.totalTokenCount
+      };
 
     } catch (error: unknown) {
       logger.error('Erreur API Gemini', { error });

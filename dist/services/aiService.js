@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AIService = void 0;
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
+const generative_ai_1 = require("@google/generative-ai");
 class AIService {
     constructor(httpClient) {
         this.httpClient = httpClient;
@@ -156,58 +157,41 @@ Je reste à votre disposition pour toute question sur nos produits et services d
     }
     async callGemini(messages) {
         try {
+            const genAI = new generative_ai_1.GoogleGenerativeAI(this.aiConfig.apiKey);
             const systemMessage = messages.find(m => m.role === 'system');
             const conversationMessages = messages.filter(m => m.role !== 'system');
-            const contents = conversationMessages.map(msg => ({
-                role: msg.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: msg.content }]
-            }));
-            const requestData = {
-                contents,
-                generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 1000,
-                    topP: 0.95
-                }
-            };
+            const modelConfig = { model: this.aiConfig.model };
             if (systemMessage) {
-                requestData.systemInstruction = {
-                    parts: [{ text: systemMessage.content }]
-                };
+                modelConfig.systemInstruction = systemMessage.content;
             }
-            const endpoint = `/models/${this.aiConfig.model}:generateContent`;
-            logger_1.logger.info('Calling Gemini API', {
-                endpoint,
+            const model = genAI.getGenerativeModel(modelConfig);
+            let promptText = '';
+            for (const msg of conversationMessages) {
+                if (msg.role === 'user') {
+                    promptText += `Utilisateur: ${msg.content}\n\n`;
+                }
+                else if (msg.role === 'assistant') {
+                    promptText += `Assistant: ${msg.content}\n\n`;
+                }
+            }
+            logger_1.logger.info('Calling Gemini API with SDK', {
                 model: this.aiConfig.model,
-                baseUrl: this.aiConfig.baseUrl,
-                apiKeyPresent: !!this.aiConfig.apiKey,
-                apiKeyLength: this.aiConfig.apiKey?.length
+                systemInstructionPresent: !!systemMessage,
+                messageCount: conversationMessages.length
             });
-            const response = await this.httpClient.post(endpoint, requestData, {
-                headers: {
-                    'x-goog-api-key': this.aiConfig.apiKey,
-                    'Content-Type': 'application/json'
-                }
+            const result = await model.generateContent(promptText);
+            const response = await result.response;
+            const content = response.text();
+            logger_1.logger.info('Gemini response received', {
+                contentLength: content.length,
+                tokensUsed: response.usageMetadata?.totalTokenCount
             });
-            const data = response.data;
-            if (data.candidates && data.candidates.length > 0) {
-                const candidate = data.candidates[0];
-                const content = candidate.content?.parts?.[0]?.text;
-                if (content) {
-                    return {
-                        success: true,
-                        content,
-                        provider: 'gemini',
-                        tokensUsed: data.usageMetadata?.totalTokenCount
-                    };
-                }
-                else {
-                    throw new Error('Aucun contenu dans la réponse Gemini');
-                }
-            }
-            else {
-                throw new Error('Aucune réponse reçue de Gemini');
-            }
+            return {
+                success: true,
+                content,
+                provider: 'gemini',
+                tokensUsed: response.usageMetadata?.totalTokenCount
+            };
         }
         catch (error) {
             logger_1.logger.error('Erreur API Gemini', { error });

@@ -33,7 +33,6 @@ class HttpClient {
     }
     setupInterceptors() {
         this.axiosInstance.interceptors.request.use(async (config) => {
-            const requestHeaders = { ...config.headers };
             const resolvedHeaders = {};
             for (const [key, value] of Object.entries(this.defaultHeaders)) {
                 if (typeof value === 'function') {
@@ -48,7 +47,7 @@ class HttpClient {
                     resolvedHeaders[key] = value;
                 }
             }
-            Object.assign(config.headers, resolvedHeaders, requestHeaders);
+            Object.assign(config.headers, resolvedHeaders);
             logger_1.logger.debug('HTTP request sent', {
                 method: config.method?.toUpperCase(),
                 url: config.url,
