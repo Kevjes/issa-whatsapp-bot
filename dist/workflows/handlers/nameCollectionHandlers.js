@@ -15,9 +15,10 @@ class ValidateUserNameHandler {
             /(quoi|comment|pourquoi|qui|quand|où|quel|quelle)\s+/i
         ];
     }
-    async execute(context) {
+    async execute(context, userInput) {
         try {
-            const userName = context.data.user_name?.trim();
+            const userName = (userInput || context.data.user_name)?.trim();
+            logger_1.logger.info("userName", userName);
             if (!userName) {
                 return {
                     success: false,

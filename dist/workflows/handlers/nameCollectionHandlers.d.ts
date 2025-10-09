@@ -2,7 +2,7 @@ import { WorkflowHandler, WorkflowHandlerResult, WorkflowContext } from '../../t
 export declare class ValidateUserNameHandler implements WorkflowHandler {
     name: string;
     private readonly invalidPatterns;
-    execute(context: WorkflowContext): Promise<WorkflowHandlerResult>;
+    execute(context: WorkflowContext, userInput: string): Promise<WorkflowHandlerResult>;
     private cleanName;
 }
 export declare class SaveUserNameHandler implements WorkflowHandler {

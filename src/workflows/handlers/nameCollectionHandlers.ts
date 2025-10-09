@@ -24,9 +24,10 @@ export class ValidateUserNameHandler implements WorkflowHandler {
     /(quoi|comment|pourquoi|qui|quand|où|quel|quelle)\s+/i
   ];
 
-  async execute(context: WorkflowContext): Promise<WorkflowHandlerResult> {
+  async execute(context: WorkflowContext, userInput: string): Promise<WorkflowHandlerResult> {
     try {
-      const userName = context.data.user_name?.trim();
+      // Utiliser userInput au lieu de context.data.user_name pour avoir la dernière valeur
+      const userName = (userInput || context.data.user_name)?.trim();
       logger.info("userName", userName);
       if (!userName) {
         return {
