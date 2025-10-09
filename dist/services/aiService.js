@@ -19,7 +19,11 @@ class AIService {
         });
     }
     getDefaultModel() {
-        return config_1.config.ai.provider === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat';
+        if (config_1.config.ai.provider === 'openai')
+            return 'gpt-3.5-turbo';
+        if (config_1.config.ai.provider === 'gemini')
+            return 'gemini-2.5-flash';
+        return 'deepseek-chat';
     }
     async generateResponse(userMessage, conversationHistory = [], systemPrompt) {
         try {
@@ -30,6 +34,9 @@ class AIService {
             let aiResponse;
             if (this.aiConfig.provider === 'openai') {
                 aiResponse = await this.callOpenAI(messages);
+            }
+            else if (this.aiConfig.provider === 'gemini') {
+                aiResponse = await this.callGemini(messages);
             }
             else {
                 aiResponse = await this.callDeepSeek(messages);
@@ -144,6 +151,66 @@ Je reste à votre disposition pour toute question sur nos produits et services d
         }
         catch (error) {
             logger_1.logger.error('Erreur API DeepSeek', { error });
+            throw error;
+        }
+    }
+    async callGemini(messages) {
+        try {
+            const systemMessage = messages.find(m => m.role === 'system');
+            const conversationMessages = messages.filter(m => m.role !== 'system');
+            const contents = conversationMessages.map(msg => ({
+                role: msg.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: msg.content }]
+            }));
+            const requestData = {
+                contents,
+                generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 1000,
+                    topP: 0.95
+                }
+            };
+            if (systemMessage) {
+                requestData.systemInstruction = {
+                    parts: [{ text: systemMessage.content }]
+                };
+            }
+            const endpoint = `/models/${this.aiConfig.model}:generateContent`;
+            logger_1.logger.info('Calling Gemini API', {
+                endpoint,
+                model: this.aiConfig.model,
+                baseUrl: this.aiConfig.baseUrl,
+                apiKeyPresent: !!this.aiConfig.apiKey,
+                apiKeyLength: this.aiConfig.apiKey?.length
+            });
+            const response = await this.httpClient.post(endpoint, requestData, {
+                headers: {
+                    'x-goog-api-key': this.aiConfig.apiKey,
+                    'Content-Type': 'application/json'
+                }
+            });
+            const data = response.data;
+            if (data.candidates && data.candidates.length > 0) {
+                const candidate = data.candidates[0];
+                const content = candidate.content?.parts?.[0]?.text;
+                if (content) {
+                    return {
+                        success: true,
+                        content,
+                        provider: 'gemini',
+                        tokensUsed: data.usageMetadata?.totalTokenCount
+                    };
+                }
+                else {
+                    throw new Error('Aucun contenu dans la réponse Gemini');
+                }
+            }
+            else {
+                throw new Error('Aucune réponse reçue de Gemini');
+            }
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur API Gemini', { error });
             throw error;
         }
     }

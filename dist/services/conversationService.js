@@ -246,10 +246,26 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             const aiResponse = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
                 const conversationHistory = await this.databaseService.getConversationHistory(user.id);
                 const searchResults = await this.knowledgeService.searchByIntent(userMessage, { name: intentName, confidence: 1 }, 5);
-                const knowledgeContext = searchResults.entries
-                    .map(scored => scored.content)
-                    .join('\n\n');
+                logger_1.logger.info('Knowledge search results', {
+                    query: userMessage.substring(0, 50),
+                    totalFound: searchResults.totalFound,
+                    entriesCount: searchResults.entries.length,
+                    topScores: searchResults.entries.slice(0, 3).map(e => e.relevanceScore),
+                    topTitles: searchResults.entries.slice(0, 3).map(e => e.title)
+                });
+                const formattedContext = await this.knowledgeService.formatContextForAI(searchResults, 3);
+                const knowledgeContext = formattedContext.formattedContext;
+                logger_1.logger.info('Knowledge context for AI', {
+                    contextLength: knowledgeContext.length,
+                    relevantEntries: formattedContext.relevantEntries.length,
+                    contextPreview: knowledgeContext.substring(0, 300)
+                });
                 const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
+                logger_1.logger.info('System prompt created', {
+                    promptLength: systemPrompt.length,
+                    hasKnowledgeContext: systemPrompt.includes('CONNAISSANCES DISPONIBLES'),
+                    contextInPrompt: systemPrompt.includes(searchResults.entries[0]?.title || 'N/A')
+                });
                 return await this.aiService.generateResponse(userMessage, conversationHistory, systemPrompt);
             }, estimatedDuration, messageId);
             if (!aiResponse.success || !aiResponse.content) {

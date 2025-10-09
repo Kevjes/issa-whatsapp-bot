@@ -237,6 +237,15 @@ Je reste à votre disposition pour toute question sur nos produits et services d
       // Endpoint Gemini (sans API key dans l'URL)
       const endpoint = `/models/${this.aiConfig.model}:generateContent`;
 
+      // Log pour debug
+      logger.info('Calling Gemini API', {
+        endpoint,
+        model: this.aiConfig.model,
+        baseUrl: this.aiConfig.baseUrl,
+        apiKeyPresent: !!this.aiConfig.apiKey,
+        apiKeyLength: this.aiConfig.apiKey?.length
+      });
+
       // Gemini nécessite l'API key dans le header x-goog-api-key
       const response = await this.httpClient.post(endpoint, requestData, {
         headers: {

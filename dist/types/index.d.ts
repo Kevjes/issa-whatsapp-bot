@@ -171,7 +171,7 @@ export interface AppConfig {
         path: string;
     };
     ai: {
-        provider: 'openai' | 'deepseek';
+        provider: 'openai' | 'deepseek' | 'gemini';
         apiKey: string;
         model: string;
         baseUrl?: string;
@@ -210,7 +210,7 @@ export interface ConversationMessage {
     content: string;
     messageType: 'user' | 'bot';
     timestamp: string;
-    aiProvider?: 'openai' | 'deepseek';
+    aiProvider?: 'openai' | 'deepseek' | 'gemini';
     metadata?: Record<string, unknown>;
 }
 export interface ConversationContext {
@@ -222,7 +222,7 @@ export interface ConversationContext {
     state: 'greeting' | 'name_collection' | 'active' | 'idle';
 }
 export interface AIProviderConfig {
-    provider: 'openai' | 'deepseek';
+    provider: 'openai' | 'deepseek' | 'gemini';
     apiKey: string;
     model: string;
     baseUrl?: string;
@@ -241,7 +241,7 @@ export interface AIResponse {
     success: boolean;
     content?: string;
     error?: string;
-    provider: 'openai' | 'deepseek';
+    provider: 'openai' | 'deepseek' | 'gemini';
     tokensUsed?: number;
 }
 export interface OpenAIMessage {
