@@ -390,6 +390,7 @@ class DatabaseService {
                 logger_1.logger.warn('Requête vide après nettoyage', { originalQuery: query });
                 return [];
             }
+            const orQuery = cleanQuery.split(/\s+/).filter(w => w.length > 0).join(' OR ');
             const rows = await this.allQuery(`SELECT kb.*,
                 bm25(knowledge_fts) as relevance_score
          FROM knowledge_fts
@@ -397,9 +398,9 @@ class DatabaseService {
          WHERE knowledge_fts MATCH ?
          AND kb.is_active = 1
          ORDER BY bm25(knowledge_fts)
-         LIMIT 10`, [cleanQuery]);
+         LIMIT 10`, [orQuery]);
             if (rows.length === 0) {
-                logger_1.logger.info('Pas de résultats FTS5, utilisation fallback', { query, cleanQuery });
+                logger_1.logger.info('Pas de résultats FTS5, utilisation fallback', { query, cleanQuery, orQuery });
                 return await this.searchKnowledgeBaseFallback(query);
             }
             return rows.map(row => {
@@ -423,7 +424,7 @@ class DatabaseService {
     }
     async searchKnowledgeBaseFallback(query) {
         try {
-            const rows = await this.allQuery(`SELECT * FROM knowledge_base
+            let rows = await this.allQuery(`SELECT * FROM knowledge_base
          WHERE is_active = 1
          AND (
            keywords LIKE ?
@@ -447,6 +448,23 @@ class DatabaseService {
                 `%${query}%`,
                 `%${query}%`
             ]);
+            if (rows.length === 0) {
+                const words = query.split(/\s+/).filter(w => w.length > 2);
+                logger_1.logger.info('Recherche avec mots individuels', { words });
+                if (words.length > 0) {
+                    const conditions = words.map(() => '(keywords LIKE ? OR content LIKE ? OR title LIKE ? OR category LIKE ?)').join(' OR ');
+                    const params = words.flatMap(word => [
+                        `%${word}%`,
+                        `%${word}%`,
+                        `%${word}%`,
+                        `%${word}%`
+                    ]);
+                    rows = await this.allQuery(`SELECT * FROM knowledge_base
+             WHERE is_active = 1
+             AND (${conditions})
+             LIMIT 10`, params);
+                }
+            }
             return rows.map(row => {
                 const knowledgeRow = row;
                 return mapKnowledgeBaseToEntry({
