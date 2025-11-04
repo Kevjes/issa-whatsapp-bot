@@ -38,7 +38,7 @@ class EnhancedKnowledgeService {
                 { name: 'semantic', method: 'semantic', weight: 0.3, enabled: true }
             ],
             defaultMaxResults: config?.defaultMaxResults || 5,
-            defaultMinRelevance: config?.defaultMinRelevance || 0.3,
+            defaultMinRelevance: config?.defaultMinRelevance || 0.2,
             enableCaching: config?.enableCaching !== undefined ? config.enableCaching : true,
             cacheExpiration: config?.cacheExpiration || 3600,
             enableLogging: config?.enableLogging !== undefined ? config.enableLogging : true,
@@ -217,7 +217,7 @@ class EnhancedKnowledgeService {
             const allEntries = await this.databaseService.getAllKnowledgeEntries();
             const entriesMap = new Map(allEntries.map(e => [e.id, e]));
             for (const { knowledgeId, similarity } of topSimilarities) {
-                if (similarity < 0.3)
+                if (similarity < 0.2)
                     continue;
                 const entry = entriesMap.get(knowledgeId);
                 if (entry) {

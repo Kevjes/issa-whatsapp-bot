@@ -65,7 +65,7 @@ export class EnhancedKnowledgeService {
         { name: 'semantic', method: 'semantic', weight: 0.3, enabled: true }
       ],
       defaultMaxResults: config?.defaultMaxResults || 5,
-      defaultMinRelevance: config?.defaultMinRelevance || 0.3,
+      defaultMinRelevance: config?.defaultMinRelevance || 0.2,
       enableCaching: config?.enableCaching !== undefined ? config.enableCaching : true,
       cacheExpiration: config?.cacheExpiration || 3600,
       enableLogging: config?.enableLogging !== undefined ? config.enableLogging : true,
@@ -332,7 +332,7 @@ export class EnhancedKnowledgeService {
 
       for (const { knowledgeId, similarity } of topSimilarities) {
         // Seulement si la similarité est suffisante
-        if (similarity < 0.3) continue;
+        if (similarity < 0.2) continue;
 
         const entry = entriesMap.get(knowledgeId);
         if (entry) {
