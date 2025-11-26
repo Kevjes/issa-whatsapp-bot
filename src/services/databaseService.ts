@@ -4,8 +4,26 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { User, ConversationMessage, KnowledgeBase } from '../types';
 import { IDatabaseService } from '../core/interfaces/IDatabaseService';
+import { WorkflowContext, WorkflowStatus } from '../types/workflow';
+import { KnowledgeEntry, KnowledgeCategory } from '../types/knowledge';
 import * as path from 'path';
 import * as fs from 'fs';
+
+/**
+ * Mapper KnowledgeBase (DB) vers KnowledgeEntry (API)
+ */
+function mapKnowledgeBaseToEntry(kb: KnowledgeBase): KnowledgeEntry {
+  return {
+    id: kb.id,
+    category: kb.category as KnowledgeCategory,
+    title: kb.title,
+    content: kb.content,
+    keywords: kb.keywords,
+    createdAt: kb.createdAt,
+    updatedAt: kb.updatedAt,
+    isActive: kb.isActive
+  };
+}
 
 export class DatabaseService implements IDatabaseService {
   private db: Database | null = null;
@@ -140,7 +158,8 @@ export class DatabaseService implements IDatabaseService {
           updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           last_interaction DATETIME,
           is_active INTEGER DEFAULT 1,
-          conversation_state TEXT DEFAULT 'greeting'
+          conversation_state TEXT DEFAULT 'greeting',
+          pending_message TEXT
         )
       `);
 
@@ -182,6 +201,91 @@ export class DatabaseService implements IDatabaseService {
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_category ON knowledge_base(category)');
       await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_base_keywords ON knowledge_base(keywords)');
 
+      // Créer la table FTS5 pour recherche full-text optimisée
+      await this.runQuery(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+          category,
+          title,
+          content,
+          keywords,
+          content='knowledge_base',
+          content_rowid='id',
+          tokenize='porter unicode61 remove_diacritics 2'
+        )
+      `);
+
+      // Trigger pour synchroniser automatiquement les insertions
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_insert
+        AFTER INSERT ON knowledge_base BEGIN
+          INSERT INTO knowledge_fts(rowid, category, title, content, keywords)
+          VALUES (new.id, new.category, new.title, new.content, new.keywords);
+        END
+      `);
+
+      // Trigger pour synchroniser automatiquement les mises à jour
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_update
+        AFTER UPDATE ON knowledge_base BEGIN
+          UPDATE knowledge_fts
+          SET category = new.category,
+              title = new.title,
+              content = new.content,
+              keywords = new.keywords
+          WHERE rowid = new.id;
+        END
+      `);
+
+      // Trigger pour synchroniser automatiquement les suppressions
+      await this.runQuery(`
+        CREATE TRIGGER IF NOT EXISTS knowledge_fts_delete
+        AFTER DELETE ON knowledge_base BEGIN
+          DELETE FROM knowledge_fts WHERE rowid = old.id;
+        END
+      `);
+
+      // Table des contextes de workflow
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS workflow_contexts (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          workflow_id TEXT NOT NULL,
+          current_state TEXT NOT NULL,
+          data TEXT NOT NULL,
+          history TEXT NOT NULL,
+          metadata TEXT,
+          status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'cancelled', 'failed')),
+          started_at DATETIME NOT NULL,
+          updated_at DATETIME NOT NULL,
+          completed_at DATETIME,
+          error_message TEXT,
+          FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        )
+      `);
+
+      // Index pour les workflows
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_user_id ON workflow_contexts(user_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_status ON workflow_contexts(status)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_workflow_contexts_workflow_id ON workflow_contexts(workflow_id)');
+
+      // Table pour stocker les embeddings vectoriels
+      await this.runQuery(`
+        CREATE TABLE IF NOT EXISTS knowledge_embeddings (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          knowledge_id INTEGER NOT NULL UNIQUE,
+          embedding BLOB NOT NULL,
+          model_name TEXT NOT NULL,
+          vector_dimension INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (knowledge_id) REFERENCES knowledge_base (id) ON DELETE CASCADE
+        )
+      `);
+
+      // Index pour optimiser les requêtes d'embeddings
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_knowledge_id ON knowledge_embeddings(knowledge_id)');
+      await this.runQuery('CREATE INDEX IF NOT EXISTS idx_knowledge_embeddings_model ON knowledge_embeddings(model_name)');
+
       logger.info('Tables SQLite créées avec succès');
     } catch (error) {
       logger.error('Erreur lors de la création des tables SQLite', { error });
@@ -216,8 +320,9 @@ export class DatabaseService implements IDatabaseService {
           last_interaction: string;
           is_active: number;
           conversation_state: string;
+          pending_message: string | null;
         };
-        
+
         // Mettre à jour la dernière interaction
         await this.runQuery(
           'UPDATE users SET last_interaction = datetime(\'now\') WHERE id = ?',
@@ -234,14 +339,15 @@ export class DatabaseService implements IDatabaseService {
           updatedAt: userRow.updated_at,
           lastInteraction: userRow.last_interaction,
           isActive: Boolean(userRow.is_active),
-          conversationState: userRow.conversation_state as User['conversationState'] as User['conversationState']
+          conversationState: userRow.conversation_state as User['conversationState'],
+          pendingMessage: userRow.pending_message || undefined
         };
       }
 
-      // Créer un nouvel utilisateur
+      // Créer un nouvel utilisateur avec état initial 'greeting'
       const result = await this.runQuery(
-        `INSERT INTO users (phone_number, name, last_interaction) 
-         VALUES (?, ?, datetime('now'))`,
+        `INSERT INTO users (phone_number, name, last_interaction, conversation_state)
+         VALUES (?, ?, datetime('now'), 'greeting')`,
         [phoneNumber, name || null]
       );
 
@@ -268,16 +374,21 @@ export class DatabaseService implements IDatabaseService {
   /**
    * Mettre à jour l'état de conversation d'un utilisateur
    */
-  async updateUserState(userId: number, state: User['conversationState'], name?: string): Promise<void> {
+  async updateUserState(userId: number, state: User['conversationState'], name?: string, pendingMessage?: string | null): Promise<void> {
     await this.ensureInitialized();
 
     try {
       const updateFields = ['conversation_state = ?', 'updated_at = datetime(\'now\')'];
-      const params: (string | number)[] = [state];
+      const params: (string | number | null)[] = [state];
 
       if (name !== undefined) {
         updateFields.push('name = ?');
         params.push(name);
+      }
+
+      if (pendingMessage !== undefined) {
+        updateFields.push('pending_message = ?');
+        params.push(pendingMessage);
       }
 
       params.push(userId);
@@ -287,7 +398,7 @@ export class DatabaseService implements IDatabaseService {
         params
       );
 
-      logger.debug('État utilisateur mis à jour', { userId, state, name });
+      logger.debug('État utilisateur mis à jour', { userId, state, name, hasPendingMessage: !!pendingMessage });
     } catch (error) {
       logger.error('Erreur lors de la mise à jour de l\'état utilisateur', { error, userId, state });
       throw error;
@@ -378,14 +489,81 @@ export class DatabaseService implements IDatabaseService {
   }
 
   /**
-   * Récupérer les données de la base de connaissances par mots-clés
+   * Récupérer les données de la base de connaissances par mots-clés (OPTIMISÉ avec FTS5)
    */
-  async searchKnowledgeBase(query: string): Promise<KnowledgeBase[]> {
+  async searchKnowledgeBase(query: string): Promise<KnowledgeEntry[]> {
     await this.ensureInitialized();
 
     try {
-      // Recherche dans les mots-clés (JSON) et le contenu
+      // Nettoyer la requête pour FTS5 (enlever caractères spéciaux)
+      const cleanQuery = query.replace(/[^\w\sÀ-ÿ]/g, ' ').trim();
+
+      if (!cleanQuery) {
+        logger.warn('Requête vide après nettoyage', { originalQuery: query });
+        return [];
+      }
+
+      // Convertir en requête OR pour FTS5 (chercher n'importe quel mot)
+      const orQuery = cleanQuery.split(/\s+/).filter(w => w.length > 0).join(' OR ');
+
+      // Utiliser FTS5 pour recherche optimisée avec BM25 ranking
       const rows = await this.allQuery(
+        `SELECT kb.*,
+                bm25(knowledge_fts) as relevance_score
+         FROM knowledge_fts
+         JOIN knowledge_base kb ON kb.id = knowledge_fts.rowid
+         WHERE knowledge_fts MATCH ?
+         AND kb.is_active = 1
+         ORDER BY bm25(knowledge_fts)
+         LIMIT 10`,
+        [orQuery]
+      );
+
+      // Si pas de résultats avec FTS5, fallback sur l'ancienne méthode
+      if (rows.length === 0) {
+        logger.info('Pas de résultats FTS5, utilisation fallback', { query, cleanQuery, orQuery });
+        return await this.searchKnowledgeBaseFallback(query);
+      }
+
+      return rows.map(row => {
+        const knowledgeRow = row as {
+          id: number;
+          category: string;
+          title: string;
+          content: string;
+          keywords: string;
+          created_at: string;
+          updated_at: string;
+          is_active: number;
+          relevance_score: number;
+        };
+
+        return mapKnowledgeBaseToEntry({
+          id: knowledgeRow.id,
+          category: knowledgeRow.category,
+          title: knowledgeRow.title,
+          content: knowledgeRow.content,
+          keywords: JSON.parse(knowledgeRow.keywords),
+          createdAt: knowledgeRow.created_at,
+          updatedAt: knowledgeRow.updated_at,
+          isActive: Boolean(knowledgeRow.is_active)
+        });
+      });
+
+    } catch (error) {
+      logger.error('Erreur lors de la recherche dans la base de connaissances', { error, query });
+      // Fallback en cas d'erreur FTS5
+      return await this.searchKnowledgeBaseFallback(query);
+    }
+  }
+
+  /**
+   * Méthode de recherche fallback (ancienne méthode LIKE)
+   */
+  private async searchKnowledgeBaseFallback(query: string): Promise<KnowledgeEntry[]> {
+    try {
+      // Rechercher d'abord avec la phrase complète
+      let rows = await this.allQuery(
         `SELECT * FROM knowledge_base
          WHERE is_active = 1
          AND (
@@ -400,17 +578,45 @@ export class DatabaseService implements IDatabaseService {
              WHEN keywords LIKE ? THEN 2
              WHEN category LIKE ? THEN 3
              ELSE 4
-           END`,
+           END
+         LIMIT 10`,
         [
-          `%"${query}"%`,  // Recherche dans le JSON des mots-clés
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
           `%${query}%`,
-          `%"${query}"%`,  // Pour la priorité des mots-clés
-          `%${query}%`     // Pour la priorité de la catégorie
+          `%${query}%`,
+          `%${query}%`,
+          `%${query}%`
         ]
       );
+
+      // Si pas de résultats, rechercher avec des mots individuels
+      if (rows.length === 0) {
+        const words = query.split(/\s+/).filter(w => w.length > 2);
+        logger.info('Recherche avec mots individuels', { words });
+
+        if (words.length > 0) {
+          const conditions = words.map(() =>
+            '(keywords LIKE ? OR content LIKE ? OR title LIKE ? OR category LIKE ?)'
+          ).join(' OR ');
+
+          const params = words.flatMap(word => [
+            `%${word}%`,
+            `%${word}%`,
+            `%${word}%`,
+            `%${word}%`
+          ]);
+
+          rows = await this.allQuery(
+            `SELECT * FROM knowledge_base
+             WHERE is_active = 1
+             AND (${conditions})
+             LIMIT 10`,
+            params
+          );
+        }
+      }
 
       return rows.map(row => {
         const knowledgeRow = row as {
@@ -423,8 +629,8 @@ export class DatabaseService implements IDatabaseService {
           updated_at: string;
           is_active: number;
         };
-        
-        return {
+
+        return mapKnowledgeBaseToEntry({
           id: knowledgeRow.id,
           category: knowledgeRow.category,
           title: knowledgeRow.title,
@@ -433,12 +639,11 @@ export class DatabaseService implements IDatabaseService {
           createdAt: knowledgeRow.created_at,
           updatedAt: knowledgeRow.updated_at,
           isActive: Boolean(knowledgeRow.is_active)
-        };
+        });
       });
-
     } catch (error) {
-      logger.error('Erreur lors de la recherche dans la base de connaissances', { error, query });
-      throw error;
+      logger.error('Erreur dans la recherche fallback', { error, query });
+      return [];
     }
   }
 
@@ -540,5 +745,407 @@ export class DatabaseService implements IDatabaseService {
         resolve();
       }
     });
+  }
+
+  /**
+   * Sauvegarder le contexte d'un workflow
+   */
+  async saveWorkflowContext(userId: number, context: WorkflowContext): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      const data = JSON.stringify(context.data);
+      const history = JSON.stringify(context.history);
+      const metadata = JSON.stringify(context.metadata);
+
+      // Vérifier si un workflow actif existe déjà pour cet utilisateur
+      const existing = await this.getQuery(
+        'SELECT id FROM workflow_contexts WHERE user_id = ? AND status = ?',
+        [userId, 'active']
+      );
+
+      if (existing) {
+        // Mettre à jour le workflow existant
+        await this.runQuery(
+          `UPDATE workflow_contexts
+           SET workflow_id = ?, current_state = ?, data = ?, history = ?,
+               metadata = ?, status = ?, updated_at = ?, completed_at = ?, error_message = ?
+           WHERE id = ?`,
+          [
+            context.workflowId,
+            context.currentState,
+            data,
+            history,
+            metadata,
+            context.status,
+            context.updatedAt,
+            context.completedAt || null,
+            context.errorMessage || null,
+            existing.id
+          ]
+        );
+
+        if (context.id === undefined) {
+          context.id = existing.id as number;
+        }
+      } else {
+        // Insérer un nouveau workflow
+        const result = await this.runQuery(
+          `INSERT INTO workflow_contexts
+           (user_id, workflow_id, current_state, data, history, metadata, status, started_at, updated_at, completed_at, error_message)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            userId,
+            context.workflowId,
+            context.currentState,
+            data,
+            history,
+            metadata,
+            context.status,
+            context.startedAt,
+            context.updatedAt,
+            context.completedAt || null,
+            context.errorMessage || null
+          ]
+        );
+
+        context.id = result.lastID;
+      }
+
+      logger.debug('Workflow context saved', {
+        userId,
+        workflowId: context.workflowId,
+        contextId: context.id,
+        status: context.status
+      });
+
+    } catch (error) {
+      logger.error('Error saving workflow context', {
+        userId,
+        workflowId: context.workflowId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger le contexte d'un workflow actif
+   */
+  async loadWorkflowContext(userId: number): Promise<WorkflowContext | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT * FROM workflow_contexts WHERE user_id = ? AND status = ? ORDER BY updated_at DESC LIMIT 1',
+        [userId, 'active']
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      const context: WorkflowContext = {
+        id: row.id as number,
+        userId: row.user_id as number,
+        workflowId: row.workflow_id as string,
+        currentState: row.current_state as string,
+        data: JSON.parse(row.data as string),
+        history: JSON.parse(row.history as string),
+        metadata: JSON.parse(row.metadata as string || '{}'),
+        status: row.status as WorkflowStatus,
+        startedAt: row.started_at as string,
+        updatedAt: row.updated_at as string,
+        completedAt: row.completed_at as string | undefined,
+        errorMessage: row.error_message as string | undefined
+      };
+
+      return context;
+
+    } catch (error) {
+      logger.error('Error loading workflow context', {
+        userId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Charger un contexte de workflow spécifique par userId et workflowId
+   * Permet de récupérer un workflow même s'il est completed
+   */
+  async getWorkflowContextById(userId: number, workflowId: string): Promise<WorkflowContext | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT * FROM workflow_contexts WHERE user_id = ? AND workflow_id = ? ORDER BY updated_at DESC LIMIT 1',
+        [userId, workflowId]
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      const context: WorkflowContext = {
+        id: row.id as number,
+        userId: row.user_id as number,
+        workflowId: row.workflow_id as string,
+        currentState: row.current_state as string,
+        data: JSON.parse(row.data as string),
+        history: JSON.parse(row.history as string),
+        metadata: JSON.parse(row.metadata as string || '{}'),
+        status: row.status as WorkflowStatus,
+        startedAt: row.started_at as string,
+        updatedAt: row.updated_at as string,
+        completedAt: row.completed_at as string | undefined,
+        errorMessage: row.error_message as string | undefined
+      };
+
+      return context;
+
+    } catch (error) {
+      logger.error('Error loading workflow context by ID', {
+        userId,
+        workflowId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Obtenir toutes les entrées de la base de connaissances
+   */
+  async getAllKnowledgeEntries(): Promise<KnowledgeEntry[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT * FROM knowledge_base WHERE is_active = 1'
+      );
+
+      return rows.map(row => mapKnowledgeBaseToEntry({
+        id: row.id as number,
+        category: row.category as string,
+        title: row.title as string,
+        content: row.content as string,
+        keywords: JSON.parse(row.keywords as string),
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        isActive: row.is_active === 1
+      }));
+
+    } catch (error) {
+      logger.error('Error getting all knowledge entries', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Obtenir les entrées par catégorie
+   */
+  async getKnowledgeByCategory(category: string): Promise<KnowledgeEntry[]> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT * FROM knowledge_base WHERE category = ? AND is_active = 1',
+        [category]
+      );
+
+      return rows.map(row => mapKnowledgeBaseToEntry({
+        id: row.id as number,
+        category: row.category as string,
+        title: row.title as string,
+        content: row.content as string,
+        keywords: JSON.parse(row.keywords as string),
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        isActive: row.is_active === 1
+      }));
+
+    } catch (error) {
+      logger.error('Error getting knowledge by category', { category, error });
+      return [];
+    }
+  }
+
+  /**
+   * Sauvegarder un embedding pour une entrée de connaissance
+   */
+  async saveEmbedding(
+    knowledgeId: number,
+    embedding: number[],
+    modelName: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      // Convertir le tableau en Buffer pour le stockage BLOB
+      const buffer = Buffer.from(new Float32Array(embedding).buffer);
+
+      // Vérifier si un embedding existe déjà
+      const existing = await this.getQuery(
+        'SELECT id FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      if (existing) {
+        // Mettre à jour
+        await this.runQuery(
+          `UPDATE knowledge_embeddings
+           SET embedding = ?, model_name = ?, vector_dimension = ?, updated_at = datetime('now')
+           WHERE knowledge_id = ?`,
+          [buffer, modelName, embedding.length, knowledgeId]
+        );
+      } else {
+        // Insérer
+        await this.runQuery(
+          `INSERT INTO knowledge_embeddings (knowledge_id, embedding, model_name, vector_dimension)
+           VALUES (?, ?, ?, ?)`,
+          [knowledgeId, buffer, modelName, embedding.length]
+        );
+      }
+
+      logger.debug('Embedding sauvegardé', {
+        knowledgeId,
+        dimension: embedding.length,
+        model: modelName
+      });
+
+    } catch (error) {
+      logger.error('Error saving embedding', {
+        knowledgeId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer un embedding par knowledge_id
+   */
+  async getEmbedding(knowledgeId: number): Promise<number[] | null> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT embedding, vector_dimension FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      // Convertir le BLOB en tableau de nombres
+      const buffer = row.embedding as Buffer;
+      const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+      return Array.from(float32Array);
+
+    } catch (error) {
+      logger.error('Error getting embedding', { knowledgeId, error });
+      return null;
+    }
+  }
+
+  /**
+   * Récupérer tous les embeddings
+   */
+  async getAllEmbeddings(): Promise<Array<{ knowledgeId: number; embedding: number[] }>> {
+    await this.ensureInitialized();
+
+    try {
+      const rows = await this.allQuery(
+        'SELECT knowledge_id, embedding FROM knowledge_embeddings'
+      );
+
+      return rows.map(row => {
+        const buffer = row.embedding as Buffer;
+        const float32Array = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+
+        return {
+          knowledgeId: row.knowledge_id as number,
+          embedding: Array.from(float32Array)
+        };
+      });
+
+    } catch (error) {
+      logger.error('Error getting all embeddings', { error });
+      return [];
+    }
+  }
+
+  /**
+   * Supprimer un embedding
+   */
+  async deleteEmbedding(knowledgeId: number): Promise<void> {
+    await this.ensureInitialized();
+
+    try {
+      await this.runQuery(
+        'DELETE FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      logger.debug('Embedding supprimé', { knowledgeId });
+
+    } catch (error) {
+      logger.error('Error deleting embedding', { knowledgeId, error });
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifier si un embedding existe
+   */
+  async hasEmbedding(knowledgeId: number): Promise<boolean> {
+    await this.ensureInitialized();
+
+    try {
+      const row = await this.getQuery(
+        'SELECT 1 FROM knowledge_embeddings WHERE knowledge_id = ?',
+        [knowledgeId]
+      );
+
+      return !!row;
+
+    } catch (error) {
+      logger.error('Error checking embedding existence', { knowledgeId, error });
+      return false;
+    }
+  }
+
+  /**
+   * Obtenir les statistiques des embeddings
+   */
+  async getEmbeddingsStats(): Promise<{
+    total: number;
+    modelName: string | null;
+    vectorDimension: number | null;
+  }> {
+    await this.ensureInitialized();
+
+    try {
+      const countRow = await this.getQuery(
+        'SELECT COUNT(*) as count FROM knowledge_embeddings'
+      );
+
+      const metaRow = await this.getQuery(
+        'SELECT model_name, vector_dimension FROM knowledge_embeddings LIMIT 1'
+      );
+
+      return {
+        total: (countRow?.count as number) || 0,
+        modelName: metaRow?.model_name as string || null,
+        vectorDimension: metaRow?.vector_dimension as number || null
+      };
+
+    } catch (error) {
+      logger.error('Error getting embeddings stats', { error });
+      return { total: 0, modelName: null, vectorDimension: null };
+    }
   }
 }

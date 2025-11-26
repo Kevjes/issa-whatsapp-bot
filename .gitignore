@@ -129,8 +129,8 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# TypeScript build output
-dist/
+# TypeScript build output (commented for Docker deployment)
+# dist/
 build/
 
 # IDE files
@@ -185,3 +185,7 @@ config/local.js
 
 # Logs directory
 logs/
+
+# Claude Code files
+.claude/
+CLAUDE.md

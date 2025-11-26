@@ -1,14 +1,42 @@
 import { KnowledgeBase } from '../types';
 import { DatabaseService } from './databaseService';
+import { VectorSearchService } from './vectorSearchService';
 import { logger } from '../utils/logger';
+import { QueryNormalizer } from '../utils/queryNormalizer';
 import * as fs from 'fs';
 import * as path from 'path';
+import NodeCache from 'node-cache';
 
 export class KnowledgeService {
   private databaseService: DatabaseService;
+  private cache: NodeCache;
+  private queryNormalizer: QueryNormalizer;
+  private vectorSearch: VectorSearchService;
+  private useVectorSearch: boolean = false;
 
   constructor(databaseService: DatabaseService) {
     this.databaseService = databaseService;
+
+    // Initialiser le cache avec TTL de 1 heure
+    this.cache = new NodeCache({
+      stdTTL: 3600,           // 1 heure de durée de vie
+      checkperiod: 600,       // Vérifier les expirations toutes les 10 minutes
+      useClones: false,       // Pas de clonage pour meilleure performance
+      maxKeys: 1000           // Maximum 1000 entrées en cache
+    });
+
+    // Initialiser le normalisateur de requêtes
+    this.queryNormalizer = new QueryNormalizer();
+
+    // Initialiser le service de recherche vectorielle
+    this.vectorSearch = new VectorSearchService();
+
+    logger.info('KnowledgeService initialisé avec cache, normalisation et vectors', {
+      ttl: '3600s',
+      maxKeys: 1000,
+      normalizer: 'QueryNormalizer avec stemming français',
+      vectorSearch: 'VectorSearchService (lazy init)'
+    });
   }
 
   /**
@@ -34,6 +62,12 @@ export class KnowledgeService {
       // Charger les données ROI et ROI Takaful
       await this.loadROIData();
       await this.loadROITakafulData();
+
+      // Charger les nouveaux fichiers de connaissances détaillées
+      await this.loadGlossaireGeneralData();
+      await this.loadNoticeInformationData();
+      await this.loadTakafulAutomobileData();
+      await this.loadSanteGroupeData();
 
       logger.info('Base de connaissances initialisée avec succès');
     } catch (error) {
@@ -313,10 +347,33 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
   }
 
   /**
-   * Rechercher dans la base de connaissances
+   * Rechercher dans la base de connaissances (avec normalisation améliorée)
    */
   async search(query: string): Promise<KnowledgeBase[]> {
-    return await this.databaseService.searchKnowledgeBase(query);
+    // Analyser et normaliser la requête
+    const analysis = this.queryNormalizer.analyze(query);
+
+    logger.debug('Requête analysée', {
+      original: analysis.original,
+      normalized: analysis.normalized,
+      keywordsCount: analysis.keywords.length,
+      expandedCount: analysis.expanded.length,
+      language: analysis.language
+    });
+
+    // Créer une requête FTS5 optimisée avec termes élargis
+    const fts5Query = analysis.fts5Query;
+
+    // Rechercher avec la requête élargie
+    const results = await this.databaseService.searchKnowledgeBase(fts5Query);
+
+    logger.debug('Résultats de recherche normalisée', {
+      query: analysis.original,
+      fts5Query,
+      resultsCount: results.length
+    });
+
+    return results;
   }
 
   /**
@@ -327,12 +384,29 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
   }
 
   /**
-   * Obtenir le contexte de connaissance pour une requête
+   * Obtenir le contexte de connaissance pour une requête (OPTIMISÉ avec cache)
    */
   async getContextForQuery(query: string): Promise<string> {
     try {
-      const searchQuery = query.toLowerCase();
-      logger.info('Recherche dans la base de connaissances', { originalQuery: query, searchQuery });
+      const searchQuery = query.toLowerCase().trim();
+      const cacheKey = `context:${searchQuery}`;
+
+      // Vérifier le cache d'abord
+      const cachedContext = this.cache.get<string>(cacheKey);
+      if (cachedContext) {
+        logger.info('Cache HIT pour la recherche', {
+          query: searchQuery,
+          cacheKey,
+          cacheStats: this.getCacheStats()
+        });
+        return cachedContext;
+      }
+
+      logger.info('Cache MISS - Recherche dans la base de connaissances', {
+        originalQuery: query,
+        searchQuery,
+        cacheStats: this.getCacheStats()
+      });
 
       // Essayer plusieurs stratégies de recherche
       let results = await this.search(searchQuery);
@@ -355,29 +429,43 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
         results = uniqueResults;
       }
 
+      // Re-ranker les résultats en priorisant ceux dont le titre contient les mots-clés
+      const keywords = this.queryNormalizer.extractKeywords(searchQuery);
+      const rerankedResults = this.rerankByTitleMatch(results, keywords);
+
       logger.info('Résultats de recherche', {
         query: searchQuery,
-        resultCount: results.length,
-        resultTitles: results.map(r => r.title)
+        resultCount: rerankedResults.length,
+        resultTitles: rerankedResults.map(r => r.title)
       });
 
-      if (results.length === 0) {
+      let context: string;
+
+      if (rerankedResults.length === 0) {
         logger.warn('Aucun résultat trouvé', { query: searchQuery });
-        return 'Aucune information spécifique trouvée dans la base de connaissances.';
+        context = 'Aucune information spécifique trouvée dans la base de connaissances.';
+      } else {
+        // Limiter à 5 résultats les plus pertinents (augmenté de 3 à 5)
+        const topResults = rerankedResults.slice(0, 5);
+
+        context = 'Informations pertinentes :\n\n';
+        for (const result of topResults) {
+          context += `**${result.title}**\n${result.content}\n\n`;
+        }
+
+        logger.info('Contexte généré', {
+          query: searchQuery,
+          contextLength: context.length,
+          resultTitles: topResults.map(r => r.title)
+        });
       }
 
-      // Limiter à 3 résultats les plus pertinents
-      const topResults = results.slice(0, 3);
-
-      let context = 'Informations pertinentes :\n\n';
-      for (const result of topResults) {
-        context += `**${result.title}**\n${result.content}\n\n`;
-      }
-
-      logger.info('Contexte généré', {
-        query: searchQuery,
+      // Stocker dans le cache
+      this.cache.set(cacheKey, context);
+      logger.debug('Contexte mis en cache', {
+        cacheKey,
         contextLength: context.length,
-        resultTitles: topResults.map(r => r.title)
+        cacheStats: this.getCacheStats()
       });
 
       return context;
@@ -385,6 +473,204 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
       logger.error('Erreur lors de la recherche de contexte', { error, query });
       return 'Erreur lors de la récupération des informations.';
     }
+  }
+
+  /**
+   * Re-ranker les résultats en priorisant ceux dont le titre contient les mots-clés
+   */
+  private rerankByTitleMatch(results: KnowledgeBase[], keywords: string[]): KnowledgeBase[] {
+    return results.sort((a, b) => {
+      const titleA = a.title.toLowerCase();
+      const titleB = b.title.toLowerCase();
+
+      // Compter combien de mots-clés sont dans chaque titre
+      const matchesA = keywords.filter(kw => titleA.includes(kw)).length;
+      const matchesB = keywords.filter(kw => titleB.includes(kw)).length;
+
+      // Trier par nombre de correspondances décroissant
+      return matchesB - matchesA;
+    });
+  }
+
+  /**
+   * Obtenir les statistiques du cache
+   */
+  getCacheStats(): { keys: number; hits: number; misses: number; ksize: number; vsize: number } {
+    return this.cache.getStats();
+  }
+
+  /**
+   * Vider le cache (utile pour les mises à jour de la base de connaissances)
+   */
+  clearCache(): void {
+    this.cache.flushAll();
+    logger.info('Cache vidé', { stats: this.getCacheStats() });
+  }
+
+  /**
+   * Pré-charger le cache avec les requêtes fréquentes
+   */
+  async warmupCache(): Promise<void> {
+    const topQueries = [
+      'services takaful',
+      'contact roi',
+      'qu\'est-ce que takaful',
+      'agences douala',
+      'assurance islamique',
+      'roi takaful',
+      'sharia board',
+      'hajj',
+      'wakalah',
+      'définition takaful'
+    ];
+
+    logger.info('Pré-chargement du cache avec les requêtes fréquentes', {
+      queryCount: topQueries.length
+    });
+
+    for (const query of topQueries) {
+      await this.getContextForQuery(query);
+    }
+
+    logger.info('Cache pré-chargé avec succès', {
+      stats: this.getCacheStats()
+    });
+  }
+
+  /**
+   * Activer la recherche vectorielle (initialise et pré-calcule les embeddings)
+   */
+  async enableVectorSearch(): Promise<void> {
+    try {
+      logger.info('Activation de la recherche vectorielle...');
+
+      // Initialiser le service vectoriel
+      await this.vectorSearch.initialize();
+
+      // Récupérer toutes les entrées pour pré-calcul
+      const allEntries = await this.databaseService.searchKnowledgeBase('');
+
+      if (allEntries.length > 0) {
+        // Pré-calculer les embeddings
+        await this.vectorSearch.precomputeEmbeddings(allEntries);
+        this.useVectorSearch = true;
+
+        logger.info('Recherche vectorielle activée', {
+          entriesIndexed: allEntries.length,
+          stats: this.vectorSearch.getStats()
+        });
+      } else {
+        logger.warn('Aucune entrée à indexer pour la recherche vectorielle');
+      }
+
+    } catch (error) {
+      logger.error('Erreur activation recherche vectorielle', { error });
+      this.useVectorSearch = false;
+    }
+  }
+
+  /**
+   * Recherche hybride : combine FTS5, normalisation et vectors
+   */
+  async searchHybrid(query: string, topK: number = 5): Promise<KnowledgeBase[]> {
+    try {
+      // Récupérer toutes les entrées
+      const allEntries = await this.databaseService.searchKnowledgeBase('');
+
+      // 1. Recherche FTS5 + normalisation (Phase 1 + 2)
+      const ftsResults = await this.search(query);
+
+      // 2. Recherche vectorielle sémantique (Phase 3)
+      let vectorResults: Array<{ entry: KnowledgeBase; score: number }> = [];
+
+      if (this.useVectorSearch && this.vectorSearch.isReady()) {
+        vectorResults = await this.vectorSearch.searchSemantic(query, allEntries, topK * 2);
+      }
+
+      // 3. Re-ranking avec Reciprocal Rank Fusion (RRF)
+      const combined = this.rerankResults(ftsResults, vectorResults, topK);
+
+      logger.debug('Recherche hybride terminée', {
+        query,
+        ftsCount: ftsResults.length,
+        vectorCount: vectorResults.length,
+        finalCount: combined.length
+      });
+
+      return combined;
+
+    } catch (error) {
+      logger.error('Erreur recherche hybride', { error, query });
+      // Fallback sur recherche normale
+      return await this.search(query);
+    }
+  }
+
+  /**
+   * Re-ranking avec Reciprocal Rank Fusion (RRF)
+   * Combine les scores de plusieurs sources de recherche
+   */
+  private rerankResults(
+    ftsResults: KnowledgeBase[],
+    vectorResults: Array<{ entry: KnowledgeBase; score: number }>,
+    topK: number
+  ): KnowledgeBase[] {
+    const k = 60; // Constante RRF standard
+    const scores = new Map<number, number>();
+
+    // Score FTS (basé sur le rang)
+    ftsResults.forEach((entry, rank) => {
+      if (entry.id) {
+        const rrfScore = 1 / (k + rank + 1);
+        scores.set(entry.id, (scores.get(entry.id) || 0) + rrfScore);
+      }
+    });
+
+    // Score vectoriel (basé sur le rang ET la similarité cosinus)
+    vectorResults.forEach((result, rank) => {
+      if (result.entry.id) {
+        // RRF score avec boost de similarité
+        const rrfScore = 1 / (k + rank + 1);
+        const similarityBoost = result.score; // 0-1
+        const combinedScore = rrfScore * (1 + similarityBoost);
+
+        scores.set(
+          result.entry.id,
+          (scores.get(result.entry.id) || 0) + combinedScore
+        );
+      }
+    });
+
+    // Créer un index des entrées par ID
+    const entriesById = new Map<number, KnowledgeBase>();
+    [...ftsResults, ...vectorResults.map(r => r.entry)].forEach(entry => {
+      if (entry.id && !entriesById.has(entry.id)) {
+        entriesById.set(entry.id, entry);
+      }
+    });
+
+    // Trier par score combiné
+    const ranked = Array.from(scores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, topK)
+      .map(([id]) => entriesById.get(id))
+      .filter((entry): entry is KnowledgeBase => entry !== undefined);
+
+    logger.debug('Re-ranking terminé', {
+      inputFts: ftsResults.length,
+      inputVector: vectorResults.length,
+      uniqueEntries: scores.size,
+      output: ranked.length
+    });
+
+    return ranked;
+  }
+
+  /**
+   * Obtenir les statistiques de la recherche vectorielle
+   */
+  getVectorSearchStats(): ReturnType<VectorSearchService['getStats']> {
+    return this.vectorSearch.getStats();
   }
 
   /**
@@ -430,5 +716,165 @@ Guichet Principal : Douala Cameroun – Quartier Bonapriso, à côté de Total B
 
     const queryLower = query.toLowerCase();
     return takafulKeywords.some(keyword => queryLower.includes(keyword));
+  }
+
+  /**
+   * Charger le glossaire général ROI Takaful
+   */
+  private async loadGlossaireGeneralData(): Promise<void> {
+    try {
+      const glossaireFilePath = path.join(process.cwd(), 'docs', 'GLOSSAIRE GENERAL ROI TAKAFUL.txt');
+
+      if (!fs.existsSync(glossaireFilePath)) {
+        logger.warn('Fichier GLOSSAIRE GENERAL ROI TAKAFUL.txt introuvable', { path: glossaireFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(glossaireFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_glossaire',
+        title: 'Glossaire Général ROI Takaful',
+        content: content,
+        keywords: [
+          'glossaire', 'définitions', 'termes', 'vocabulaire', 'takaful',
+          'actifs halal', 'comité conformité sharia', 'contribution', 'tabarru',
+          'événement dommageable', 'fatwas', 'fonds takaful', 'franchise',
+          'gharar', 'maysir', 'participant', 'qard hassan', 'riba',
+          'sharia', 'surplus', 'wakalah', 'wakalah fee', 'opérateur'
+        ],
+        isActive: true
+      });
+
+      logger.info('Glossaire général ROI Takaful chargé avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement du glossaire', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger la notice d'information ROI Takaful
+   */
+  private async loadNoticeInformationData(): Promise<void> {
+    try {
+      const noticeFilePath = path.join(process.cwd(), 'docs', 'NOTICE DINFORMATION ROI TAKAFUL.txt');
+
+      if (!fs.existsSync(noticeFilePath)) {
+        logger.warn('Fichier NOTICE DINFORMATION ROI TAKAFUL.txt introuvable', { path: noticeFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(noticeFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_notice',
+        title: 'Notice d\'Information ROI Takaful',
+        content: content,
+        keywords: [
+          'notice information', 'comment fonctionne', 'takaful',
+          'approche solidaire', 'principe tabarru', 'don mutuel',
+          'absence riba', 'absence gharar', 'absence maysir',
+          'séparation fonds', 'rôle opérateur', 'wakiil',
+          'gouvernance sharia', 'comité conformité', 'ccs',
+          'convention takaful', 'contribution takaful', 'frais gestion',
+          'wakalah fee', 'excédents', 'surplus', 'déficits', 'qard hassan',
+          'obligations participant', 'réclamations', 'cima'
+        ],
+        isActive: true
+      });
+
+      logger.info('Notice d\'information ROI Takaful chargée avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement de la notice d\'information', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger les informations ROI Takaful Automobile
+   */
+  private async loadTakafulAutomobileData(): Promise<void> {
+    try {
+      const autoFilePath = path.join(process.cwd(), 'docs', 'ROI TAKAFUL AUTOMOBILE.txt');
+
+      if (!fs.existsSync(autoFilePath)) {
+        logger.warn('Fichier ROI TAKAFUL AUTOMOBILE.txt introuvable', { path: autoFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(autoFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_automobile',
+        title: 'ROI Takaful Automobile',
+        content: content,
+        keywords: [
+          'takaful automobile', 'assurance auto', 'véhicule', 'voiture',
+          'wakala-takaful', 'fonds takaful', 'contribution',
+          'responsabilité civile', 'rc', 'recours tiers', 'rti',
+          'dommages corporels', 'dommages matériels', 'collision',
+          'choc', 'renversement', 'ravin', 'accident',
+          'incendie', 'explosion', 'foudre',
+          'vol', 'braquage', 'tentative vol', 'accessoires',
+          'bris de glace', 'pare-brise', 'phares',
+          'individuelle personnes transportées', 'ipt',
+          'recours défense', 'assistance réparation', 'remorquage',
+          'prise en charge', 'sinistre', 'déclaration', 'expertise',
+          'plafond', 'franchise', 'cameroun', 'cima', 'zone cima'
+        ],
+        isActive: true
+      });
+
+      logger.info('Données ROI Takaful Automobile chargées avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement des données Takaful Automobile', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Charger les données ROI Takaful Santé Groupe
+   */
+  private async loadSanteGroupeData(): Promise<void> {
+    try {
+      const santeFilePath = path.join(process.cwd(), 'docs', 'ROI_TAKAFUL_SANTE_GROUPE_POUR_ISSA.txt');
+
+      if (!fs.existsSync(santeFilePath)) {
+        logger.warn('Fichier ROI_TAKAFUL_SANTE_GROUPE_POUR_ISSA.txt introuvable', { path: santeFilePath });
+        return;
+      }
+
+      const content = fs.readFileSync(santeFilePath, 'utf8');
+
+      await this.databaseService.addKnowledgeEntry({
+        category: 'takaful_sante_groupe',
+        title: 'ROI Takaful Santé Groupe',
+        content: content,
+        keywords: [
+          'takaful santé', 'santé groupe', 'assurance santé', 'convention santé',
+          'prestations santé', 'couverture santé', 'personnel', 'employés',
+          'consultation', 'ambulatoire', 'hospitalisation', 'chirurgie',
+          'maternité', 'accouchement', 'grossesse', 'césarienne',
+          'pharmacie', 'médicaments', 'prescription',
+          'frais dentaires', 'soins dentaires', 'prothèses', 'extraction',
+          'optique', 'lunettes', 'verres correcteurs', 'montures',
+          'analyses', 'laboratoire', 'examens médicaux', 'biologie',
+          'rééducation', 'kinésithérapie', 'médecine traditionnelle',
+          'évacuation sanitaire', 'transfert', 'assistance',
+          'soins étranger', 'vih', 'sida', 'maladies opportunistes',
+          'prise en charge', 'remboursement', 'bon de prise en charge',
+          'prestataires', 'centres conventionnés', 'libre choix',
+          'plafond', 'franchise', 'contributeur', 'participant',
+          'sharia', 'charia', 'conforme', 'islamique'
+        ],
+        isActive: true
+      });
+
+      logger.info('Données ROI Takaful Santé Groupe chargées avec succès');
+    } catch (error) {
+      logger.error('Erreur lors du chargement des données Takaful Santé Groupe', { error });
+      throw error;
+    }
   }
 }

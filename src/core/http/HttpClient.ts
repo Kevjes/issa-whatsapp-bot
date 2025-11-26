@@ -137,7 +137,7 @@ export class HttpClient implements IHttpClient {
    */
   private sanitizeHeaders(headers: Record<string, unknown>): Record<string, string> {
     const sanitized: Record<string, string> = {};
-    const sensitiveKeys = ['authorization', 'x-auth-token', 'cookie', 'x-api-key'];
+    const sensitiveKeys = ['authorization', 'x-auth-token', 'cookie', 'x-api-key', 'x-goog-api-key'];
 
     for (const [key, value] of Object.entries(headers || {})) {
       if (sensitiveKeys.includes(key.toLowerCase())) {

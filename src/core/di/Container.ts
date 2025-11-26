@@ -144,6 +144,12 @@ export const TOKENS = {
   CONVERSATION_SERVICE: Symbol('ConversationService'),
   CONVERSATION_CONTROLLER: Symbol('ConversationController'),
   INITIALIZATION_SERVICE: Symbol('InitializationService'),
+  // Services de la refonte chat-review
+  WORKFLOW_ENGINE: Symbol('WorkflowEngine'),
+  INTENT_CLASSIFIER: Symbol('IntentClassifier'),
+  VALIDATION_SERVICE: Symbol('ValidationService'),
+  ENHANCED_KNOWLEDGE_SERVICE: Symbol('EnhancedKnowledgeService'),
+  VECTOR_SEARCH_SERVICE: Symbol('VectorSearchService'),
 } as const;
 
 // Instance singleton

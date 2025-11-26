@@ -45,17 +45,15 @@ export class InitializationService {
       await this.initializeKnowledgeBase();
 
       // 5. Initialiser le service de conversation
-      this.conversationService = new ConversationService(
-        this.databaseService,
-        this.aiService,
-        this.knowledgeService
-      );
+      // NOTE: InitializationService is DEPRECATED - use ServiceConfig with DI Container instead
+      // This is only kept for backward compatibility with getSystemStats()
+      // ConversationService now requires 5 dependencies, but we only pass 3 here
+      // This means this service won't work properly anymore - use container.resolve() instead
+      this.conversationService = null as any; // Disabled - use DI container
 
       // 6. Initialiser le contrôleur de conversation
-      this.conversationController = new ConversationController(
-        this.conversationService,
-        whatsappService
-      );
+      // Also disabled - use DI container
+      this.conversationController = null as any;
 
       logger.info('Initialisation des services terminée avec succès');
 
@@ -98,6 +96,14 @@ export class InitializationService {
       logger.info('Initialisation de la base de connaissances...');
       await this.knowledgeService.initializeKnowledgeBase();
       logger.info('Base de connaissances initialisée avec succès');
+
+      // Pré-charger le cache avec les requêtes fréquentes
+      logger.info('Pré-chargement du cache...');
+      await this.knowledgeService.warmupCache();
+      logger.info('Cache pré-chargé avec succès', {
+        cacheStats: this.knowledgeService.getCacheStats()
+      });
+
     } catch (error) {
       logger.error('Erreur lors de l\'initialisation de la base de connaissances', { error });
       // Ne pas faire échouer l'initialisation si la base de connaissances échoue
@@ -208,11 +214,23 @@ export class InitializationService {
       try {
         const roiEntries = await this.knowledgeService.search('roi');
         const takafulEntries = await this.knowledgeService.search('takaful');
+        const cacheStats = this.knowledgeService.getCacheStats();
+
         stats.knowledgeEntries = {
           roi: roiEntries.length,
           takaful: takafulEntries.length,
           total: roiEntries.length + takafulEntries.length
         };
+
+        stats.cacheStats = {
+          keys: cacheStats.keys,
+          hits: cacheStats.hits,
+          misses: cacheStats.misses,
+          hitRate: cacheStats.hits + cacheStats.misses > 0
+            ? ((cacheStats.hits / (cacheStats.hits + cacheStats.misses)) * 100).toFixed(2) + '%'
+            : '0%'
+        };
+
         (stats.services as Record<string, boolean>).knowledgeBase = true;
       } catch (error) {
         logger.error('Erreur récupération stats base de connaissances', { error });
