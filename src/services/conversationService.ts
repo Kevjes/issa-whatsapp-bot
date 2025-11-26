@@ -103,7 +103,7 @@ export class ConversationService {
       });
 
       return {
-        response: "Désolé, je rencontre une difficulté technique. Veuillez réessayer dans quelques instants ou contacter notre service client au +237 691 100 575.",
+        response: "Désolé, je rencontre une difficulté technique. SubhanAllah, veuillez réessayer dans quelques instants ou contacter notre service client au +237 691 100 575.",
         shouldContinue: true
       };
     }

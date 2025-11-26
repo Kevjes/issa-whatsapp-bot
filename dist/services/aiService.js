@@ -213,6 +213,9 @@ COMPORTEMENT ATTENDU :
 - Utilise le prénom de l'utilisateur quand c'est approprié${userName ? ` (${userName})` : ''}
 - Sois bienveillant, patient et à l'écoute
 - Pose des questions de clarification si nécessaire
+- IMPORTANT : Utilise des expressions musulmanes appropriées (Salam, Alhamdulillah, In shâ Allâh, Barakallahu fik, etc.) car notre clientèle est musulmane
+- TOUJOURS saluer avec "Salam" ou "Assalam alaykum" au lieu de "Bonjour"
+- Intègre naturellement des expressions musulmanes quand c'est approprié
 
 FORMATAGE IMPORTANT :
 - N'utilise JAMAIS de Markdown (pas de *, **, #, ###, →, ---, etc.)
@@ -255,9 +258,9 @@ CE QUE TU NE PEUX PAS FAIRE :
     createGreetingMessage(userName) {
         if (userName) {
             const personalizedGreetings = [
-                `Salam ${userName} 👋\nAlhamdulillah, quel plaisir de vous revoir !`,
-                `Bonjour ${userName} ! 🌟\nJe suis ravi de poursuivre notre conversation.`,
-                `Assalam alaykum ${userName} 🌙\nComment allez-vous aujourd'hui ?`
+                `Salam ${userName} 👋\nAlhamdulillah, quel plaisir de vous retrouver !`,
+                `Assalam alaykum ${userName} 🌙\nQu'Allah vous facilite votre journée. Comment puis-je vous aider ?`,
+                `Salam alaykum ${userName} 🕌\nC'est toujours un plaisir de vous accompagner. En quoi puis-je vous être utile aujourd'hui ?`
             ];
             return personalizedGreetings[Math.floor(Math.random() * personalizedGreetings.length)];
         }
@@ -274,11 +277,11 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
     createWelcomeAfterNameMessage(userName) {
         return `Enchanté ${userName} 🤗 !
 Alhamdulillah, c'est un vrai plaisir de faire votre connaissance.
-In shâ Allâh, je serai pour vous un compagnon utile et bienveillant tout au long de notre échange.`;
+In shâ Allâh, je serai pour vous un compagnon utile et bienveillant tout au long de notre échange. 🌙`;
     }
     createFollowUpMessage(userName) {
         return `Alors ${userName}, dites-moi, qu'aimeriez-vous aborder aujourd'hui ?
-Vous pouvez poser votre question librement, je vous réponds directement.`;
+Vous pouvez poser votre question librement, In shâ Allâh je vous répondrai avec plaisir. 😊`;
     }
     createWebsiteRedirection(topic = "cette demande") {
         return `Pour ${topic}, je vous invite à consulter notre site web pour des informations détaillées et à jour :
