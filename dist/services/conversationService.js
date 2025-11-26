@@ -177,6 +177,15 @@ class ConversationService {
                 });
                 return await this.startNameCollectionWorkflow(user, userMessage, messageId);
             }
+            if (this.isGreetingMessage(userMessage)) {
+                logger_1.logger.info('Message de salutation détecté - réponse avec message personnalisé', {
+                    userId: user.id,
+                    userName: user.name
+                });
+                const greetingResponse = this.aiService.createGreetingMessage(user.name);
+                const followUpMessage = this.aiService.createFollowUpMessage(user.name);
+                return `${greetingResponse}\n\n${followUpMessage}`;
+            }
             const intentResult = await this.intentClassifier.classifyIntent(userMessage);
             logger_1.logger.info('Intention classifiée', {
                 userId: user.id,
@@ -351,6 +360,15 @@ Je reste à votre disposition pour toute autre question !`;
         const randomFactor = 1 + (Math.random() - 0.5) * variation;
         const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
         await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    isGreetingMessage(message) {
+        const normalizedMessage = message.toLowerCase().trim();
+        const greetingPatterns = [
+            /^(salam|salam alaykoum|salam alaykum|assalam alaykoum|assalam alaykum|salamou alaykoum|salamou alaykum)\b/i,
+            /^(bonjour|bonsoir|salut|hello|hi|hey)\b/i,
+            /^(coucou|cc|yo)\b/i
+        ];
+        return greetingPatterns.some(pattern => pattern.test(normalizedMessage));
     }
     async resetConversation(phoneNumber) {
         try {
