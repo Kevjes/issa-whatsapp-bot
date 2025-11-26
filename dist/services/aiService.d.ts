@@ -9,6 +9,7 @@ export declare class AIService {
     private buildMessages;
     private callOpenAI;
     private callDeepSeek;
+    private callGemini;
     createSystemPrompt(userName?: string, knowledgeContext?: string): string;
     createGreetingMessage(userName?: string): string;
     createNameRequestMessage(): string;

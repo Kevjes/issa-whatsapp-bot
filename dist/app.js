@@ -61,6 +61,7 @@ class App {
     async initializeServices() {
         try {
             await ServiceConfig_1.ServiceConfig.initialize();
+            await core_1.container.resolve(core_1.TOKENS.VECTOR_SEARCH_SERVICE);
             const initService = await core_1.container.resolve(core_1.TOKENS.INITIALIZATION_SERVICE);
             const whatsappService = await core_1.container.resolve(core_1.TOKENS.WHATSAPP_SERVICE);
             const httpClient = await core_1.container.resolve(core_1.TOKENS.HTTP_CLIENT);

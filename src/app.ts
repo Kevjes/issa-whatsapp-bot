@@ -39,14 +39,17 @@ class App {
     try {
       // Initialize service configuration (dependency injection container)
       await ServiceConfig.initialize();
-      
+
+      // Pre-initialize VectorSearchService to load embedding model
+      await container.resolve(TOKENS.VECTOR_SEARCH_SERVICE);
+
       // Initialize the new conversation system
       const initService = await container.resolve<InitializationService>(TOKENS.INITIALIZATION_SERVICE);
       const whatsappService = await container.resolve<IWhatsAppService>(TOKENS.WHATSAPP_SERVICE);
       const httpClient = await container.resolve(TOKENS.HTTP_CLIENT) as IHttpClient;
-      
+
       await initService.initialize(httpClient, whatsappService);
-      
+
       logger.info('Services initialized successfully with conversation system');
     } catch (error) {
       logger.error('Error initializing services', {

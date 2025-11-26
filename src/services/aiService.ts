@@ -2,6 +2,7 @@ import { AIResponse, AIProviderConfig, OpenAIRequest, OpenAIResponse, DeepSeekRe
 import { config } from '../config';
 import { logger } from '../utils/logger';
 import { IHttpClient } from '../core/interfaces/IHttpClient';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export class AIService {
   private httpClient: IHttpClient;
@@ -24,7 +25,9 @@ export class AIService {
   }
 
   private getDefaultModel(): string {
-    return config.ai.provider === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat';
+    if (config.ai.provider === 'openai') return 'gpt-3.5-turbo';
+    if (config.ai.provider === 'gemini') return 'gemini-2.5-flash';
+    return 'deepseek-chat';
   }
 
   /**
@@ -46,6 +49,8 @@ export class AIService {
       let aiResponse: AIResponse;
       if (this.aiConfig.provider === 'openai') {
         aiResponse = await this.callOpenAI(messages);
+      } else if (this.aiConfig.provider === 'gemini') {
+        aiResponse = await this.callGemini(messages);
       } else {
         aiResponse = await this.callDeepSeek(messages);
       }
@@ -195,6 +200,66 @@ Je reste à votre disposition pour toute question sur nos produits et services d
 
     } catch (error: unknown) {
       logger.error('Erreur API DeepSeek', { error });
+      throw error;
+    }
+  }
+
+  /**
+   * Appeler l'API Google Gemini avec le SDK officiel
+   */
+  private async callGemini(messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>): Promise<AIResponse> {
+    try {
+      // Initialiser le client Gemini avec le SDK officiel
+      const genAI = new GoogleGenerativeAI(this.aiConfig.apiKey);
+
+      // Séparer le message système des autres messages
+      const systemMessage = messages.find(m => m.role === 'system');
+      const conversationMessages = messages.filter(m => m.role !== 'system');
+
+      // Créer le modèle avec systemInstruction si présent
+      const modelConfig: any = { model: this.aiConfig.model };
+
+      if (systemMessage) {
+        modelConfig.systemInstruction = systemMessage.content;
+      }
+
+      const model = genAI.getGenerativeModel(modelConfig);
+
+      // Convertir les messages en format Gemini (concaténer user/model messages)
+      let promptText = '';
+      for (const msg of conversationMessages) {
+        if (msg.role === 'user') {
+          promptText += `Utilisateur: ${msg.content}\n\n`;
+        } else if (msg.role === 'assistant') {
+          promptText += `Assistant: ${msg.content}\n\n`;
+        }
+      }
+
+      logger.info('Calling Gemini API with SDK', {
+        model: this.aiConfig.model,
+        systemInstructionPresent: !!systemMessage,
+        messageCount: conversationMessages.length
+      });
+
+      // Générer le contenu
+      const result = await model.generateContent(promptText);
+      const response = await result.response;
+      const content = response.text();
+
+      logger.info('Gemini response received', {
+        contentLength: content.length,
+        tokensUsed: response.usageMetadata?.totalTokenCount
+      });
+
+      return {
+        success: true,
+        content,
+        provider: 'gemini',
+        tokensUsed: response.usageMetadata?.totalTokenCount
+      };
+
+    } catch (error: unknown) {
+      logger.error('Erreur API Gemini', { error });
       throw error;
     }
   }

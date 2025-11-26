@@ -93,6 +93,12 @@ class ServiceConfig {
         const { ConversationService } = await Promise.resolve().then(() => __importStar(require('../../services/conversationService')));
         const { ConversationController } = await Promise.resolve().then(() => __importStar(require('../../controllers/conversationController')));
         const { InitializationService } = await Promise.resolve().then(() => __importStar(require('../../services/initializationService')));
+        const { WorkflowEngine } = await Promise.resolve().then(() => __importStar(require('../../services/workflowEngine')));
+        const { IntentClassifier } = await Promise.resolve().then(() => __importStar(require('../../services/intentClassifier')));
+        const { ValidationService } = await Promise.resolve().then(() => __importStar(require('../../services/validationService')));
+        const { EnhancedKnowledgeService } = await Promise.resolve().then(() => __importStar(require('../../services/enhancedKnowledgeService')));
+        const { VectorSearchService } = await Promise.resolve().then(() => __importStar(require('../../services/vectorSearchService')));
+        const { workflows, workflowHandlers } = await Promise.resolve().then(() => __importStar(require('../../workflows')));
         Container_1.container.register(Container_1.TOKENS.WHATSAPP_SERVICE, async () => {
             const httpClient = await Container_1.container.resolve(Container_1.TOKENS.WHATSAPP_HTTP_CLIENT);
             return new WhatsAppService(httpClient);
@@ -108,11 +114,45 @@ class ServiceConfig {
             const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);
             return new KnowledgeService(databaseService);
         });
+        Container_1.container.register(Container_1.TOKENS.VALIDATION_SERVICE, () => {
+            return new ValidationService();
+        });
+        Container_1.container.register(Container_1.TOKENS.INTENT_CLASSIFIER, () => {
+            return new IntentClassifier();
+        });
+        Container_1.container.register(Container_1.TOKENS.VECTOR_SEARCH_SERVICE, async () => {
+            const vectorService = new VectorSearchService();
+            await vectorService.initialize();
+            logger_1.logger.info('VectorSearchService initialized in DI container');
+            return vectorService;
+        });
+        Container_1.container.register(Container_1.TOKENS.ENHANCED_KNOWLEDGE_SERVICE, async () => {
+            const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);
+            const vectorSearchService = await Container_1.container.resolve(Container_1.TOKENS.VECTOR_SEARCH_SERVICE);
+            return new EnhancedKnowledgeService(databaseService, vectorSearchService);
+        });
+        Container_1.container.register(Container_1.TOKENS.WORKFLOW_ENGINE, async () => {
+            const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);
+            const workflowEngine = new WorkflowEngine(databaseService);
+            for (const workflow of workflows) {
+                workflowEngine.registerWorkflow(workflow);
+            }
+            for (const handler of workflowHandlers) {
+                workflowEngine.registerHandler(handler);
+            }
+            logger_1.logger.info('Workflow engine initialized with workflows and handlers', {
+                workflowsCount: workflows.length,
+                handlersCount: workflowHandlers.length
+            });
+            return workflowEngine;
+        });
         Container_1.container.register(Container_1.TOKENS.CONVERSATION_SERVICE, async () => {
             const databaseService = await Container_1.container.resolve(Container_1.TOKENS.DATABASE_SERVICE);
             const aiService = await Container_1.container.resolve(Container_1.TOKENS.AI_SERVICE);
-            const knowledgeService = await Container_1.container.resolve(Container_1.TOKENS.KNOWLEDGE_SERVICE);
-            return new ConversationService(databaseService, aiService, knowledgeService);
+            const workflowEngine = await Container_1.container.resolve(Container_1.TOKENS.WORKFLOW_ENGINE);
+            const intentClassifier = await Container_1.container.resolve(Container_1.TOKENS.INTENT_CLASSIFIER);
+            const knowledgeService = await Container_1.container.resolve(Container_1.TOKENS.ENHANCED_KNOWLEDGE_SERVICE);
+            return new ConversationService(databaseService, aiService, workflowEngine, intentClassifier, knowledgeService);
         });
         Container_1.container.register(Container_1.TOKENS.CONVERSATION_CONTROLLER, async () => {
             const conversationService = await Container_1.container.resolve(Container_1.TOKENS.CONVERSATION_SERVICE);

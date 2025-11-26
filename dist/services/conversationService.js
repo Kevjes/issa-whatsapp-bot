@@ -36,9 +36,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.ConversationService = void 0;
 const logger_1 = require("../utils/logger");
 class ConversationService {
-    constructor(databaseService, aiService, knowledgeService) {
+    constructor(databaseService, aiService, workflowEngine, intentClassifier, knowledgeService) {
         this.databaseService = databaseService;
         this.aiService = aiService;
+        this.workflowEngine = workflowEngine;
+        this.intentClassifier = intentClassifier;
         this.knowledgeService = knowledgeService;
     }
     async processMessage(phoneNumber, messageId, userMessage) {
@@ -48,22 +50,7 @@ class ConversationService {
                 messageId,
                 messageLength: userMessage.length
             });
-            let user = await this.databaseService.getOrCreateUser(phoneNumber);
-            if (!user.name && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
-                logger_1.logger.info('Utilisateur sans nom détecté dans un état incorrect - réinitialisation', {
-                    userId: user.id,
-                    phoneNumber,
-                    currentState: user.conversationState
-                });
-                await this.databaseService.updateUserState(user.id, 'greeting');
-                user = { ...user, conversationState: 'greeting' };
-            }
-            if (this.isGreetingMessage(userMessage) && user.conversationState !== 'greeting' && user.conversationState !== 'name_collection') {
-                await this.databaseService.updateUserState(user.id, 'greeting');
-                user = { ...user, conversationState: 'greeting' };
-                user.isGreetingReset = true;
-                logger_1.logger.info('Conversation réinitialisée suite à message de salutation', { userId: user.id, phoneNumber });
-            }
+            const user = await this.databaseService.getOrCreateUser(phoneNumber);
             await this.databaseService.saveConversationMessage({
                 userId: user.id,
                 phoneNumber,
@@ -72,21 +59,13 @@ class ConversationService {
                 messageType: 'user',
                 timestamp: new Date().toISOString()
             });
+            const activeWorkflow = await this.workflowEngine.getActiveWorkflow(user.id);
             let response;
-            const shouldContinue = true;
-            switch (user.conversationState) {
-                case 'greeting':
-                    response = await this.handleGreeting(user, userMessage, messageId);
-                    break;
-                case 'name_collection':
-                    response = await this.handleNameCollection(user, userMessage, messageId);
-                    break;
-                case 'active':
-                case 'idle':
-                    response = await this.handleActiveConversation(user, userMessage, messageId);
-                    break;
-                default:
-                    response = await this.handleActiveConversation(user, userMessage, messageId);
+            if (activeWorkflow) {
+                response = await this.handleWorkflowStep(user, activeWorkflow, userMessage, messageId);
+            }
+            else {
+                response = await this.handleNoActiveWorkflow(user, userMessage, messageId);
             }
             const cleanResponse = this.cleanMarkdownForWhatsApp(response);
             await this.databaseService.saveConversationMessage({
@@ -98,7 +77,7 @@ class ConversationService {
                 timestamp: new Date().toISOString(),
                 aiProvider: this.aiService.getConfig().provider
             });
-            return { response: cleanResponse, shouldContinue };
+            return { response: cleanResponse, shouldContinue: true };
         }
         catch (error) {
             logger_1.logger.error('Erreur lors du traitement du message', {
@@ -112,84 +91,181 @@ class ConversationService {
             };
         }
     }
-    async handleGreeting(user, userMessage, messageId) {
+    async handleWorkflowStep(user, workflowContext, userMessage, messageId) {
         try {
-            const nameMatch = this.extractNameFromMessage(userMessage);
-            if (nameMatch && !this.isInvalidName(nameMatch)) {
-                return await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
-                    await this.databaseService.updateUserState(user.id, 'active', nameMatch);
-                    const greeting = this.aiService.createGreetingMessage(nameMatch);
-                    return `${greeting}\n\nComment puis-je vous aider aujourd'hui ?`;
-                }, 2000, messageId);
+            logger_1.logger.info('Continuation du workflow actif', {
+                userId: user.id,
+                workflowId: workflowContext.workflowId,
+                currentState: workflowContext.currentState
+            });
+            let stepResult = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => await this.workflowEngine.executeStep(user.id, workflowContext, userMessage), 2000, messageId);
+            if (!stepResult.success) {
+                logger_1.logger.error('Erreur lors de l\'exécution du workflow', {
+                    userId: user.id,
+                    workflowId: workflowContext.workflowId,
+                    error: stepResult.error
+                });
+                return stepResult.message || stepResult.error || 'Une erreur est survenue.';
             }
-            if (user.isGreetingReset) {
-                const staticGreetingMessage = `Salam 👋 Je suis ISSA, votre compagnon digital chez ROI Takaful 🌙.
-
-Je suis là pour vous écouter, vous guider et répondre à vos questions.
-
-Avant de commencer, comment puis-je vous appeler ? ✍️
-(J'aime bien savoir avec qui je discute, ça rend la conversation plus conviviale 😉)`;
-                return await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
-                    await this.databaseService.updateUserState(user.id, 'name_collection');
-                    return staticGreetingMessage;
-                }, 1800, messageId);
-            }
-            if (!user.name) {
-                const staticGreetingMessage = `Salam 👋 Je suis ISSA, votre compagnon digital chez ROI Takaful 🌙.
-
-Je suis là pour vous écouter, vous guider et répondre à vos questions.
-
-Avant de commencer, comment puis-je vous appeler ? ✍️
-(J'aime bien savoir avec qui je discute, ça rend la conversation plus conviviale 😉)`;
-                return await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
-                    await this.databaseService.updateUserState(user.id, 'name_collection', undefined, userMessage);
-                    return staticGreetingMessage;
-                }, 1800, messageId);
-            }
-            return await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
-                await this.databaseService.updateUserState(user.id, 'active');
-                return this.aiService.createGreetingMessage(user.name);
-            }, 1800, messageId);
-        }
-        catch (error) {
-            logger_1.logger.error('Erreur lors de la gestion de la salutation', { error, userId: user.id });
-            throw error;
-        }
-    }
-    async handleNameCollection(user, userMessage, messageId) {
-        try {
-            const name = this.extractNameFromMessage(userMessage) || userMessage.trim();
-            if (name.length < 2 || name.length > 50 || this.isInvalidName(name)) {
-                return "Je n'ai pas bien compris votre nom. Pouvez-vous me dire comment vous vous appelez ?";
-            }
-            return await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
-                await this.databaseService.updateUserState(user.id, 'active', name, null);
-                if (user.pendingMessage) {
-                    logger_1.logger.info('Traitement du message en attente après collecte du nom', {
-                        userId: user.id,
-                        name,
-                        pendingMessage: user.pendingMessage
-                    });
-                    this.schedulePendingMessageResponse(user, name, user.pendingMessage);
-                    return this.aiService.createWelcomeAfterNameMessage(name);
+            let maxAutoSteps = 5;
+            while (!stepResult.message && !stepResult.completed && !stepResult.stayInCurrentState && maxAutoSteps > 0) {
+                logger_1.logger.info('Exécution automatique de l\'étape suivante (pas de message)', {
+                    userId: user.id,
+                    workflowId: workflowContext.workflowId,
+                    currentState: workflowContext.currentState
+                });
+                const updatedContext = await this.workflowEngine.getActiveWorkflow(user.id);
+                if (!updatedContext) {
+                    break;
                 }
-                const welcomeMessage = this.aiService.createWelcomeAfterNameMessage(name);
-                this.scheduleFollowUpMessage(user, name);
-                return welcomeMessage;
-            }, 2500, messageId);
+                stepResult = await this.workflowEngine.executeStep(user.id, updatedContext, '');
+                maxAutoSteps--;
+                if (!stepResult.success) {
+                    logger_1.logger.error('Erreur lors de l\'exécution automatique du workflow', {
+                        userId: user.id,
+                        workflowId: workflowContext.workflowId,
+                        error: stepResult.error
+                    });
+                    return stepResult.message || stepResult.error || 'Une erreur est survenue.';
+                }
+            }
+            if (stepResult.completed) {
+                logger_1.logger.info('Workflow terminé avec succès', {
+                    userId: user.id,
+                    workflowId: workflowContext.workflowId
+                });
+                if (workflowContext.workflowId === 'name_collection') {
+                    const savedContext = await this.databaseService.getWorkflowContextById(user.id, 'name_collection');
+                    if (savedContext && savedContext.data.user_name) {
+                        logger_1.logger.info('Sauvegarde du nom de l\'utilisateur', {
+                            userId: user.id,
+                            userName: savedContext.data.user_name
+                        });
+                        await this.databaseService.updateUserState(user.id, 'active', savedContext.data.user_name);
+                        logger_1.logger.info('Nom de l\'utilisateur sauvegardé avec succès', {
+                            userId: user.id,
+                            userName: savedContext.data.user_name
+                        });
+                    }
+                    else {
+                        logger_1.logger.warn('Impossible de récupérer le nom depuis le contexte du workflow', {
+                            userId: user.id,
+                            hasContext: !!savedContext,
+                            hasUserName: savedContext?.data.user_name
+                        });
+                    }
+                }
+            }
+            return stepResult.message;
         }
         catch (error) {
-            logger_1.logger.error('Erreur lors de la collecte du nom', { error, userId: user.id });
-            throw error;
+            logger_1.logger.error('Erreur lors du traitement du workflow', {
+                error,
+                userId: user.id,
+                workflowId: workflowContext.workflowId
+            });
+            await this.workflowEngine.cancelWorkflow(user.id, 'error');
+            return "Une erreur est survenue. Votre demande a été annulée. Comment puis-je vous aider ?";
         }
     }
-    async handleActiveConversation(user, userMessage, messageId) {
+    async handleNoActiveWorkflow(user, userMessage, messageId) {
+        try {
+            if (!user.name) {
+                logger_1.logger.info('Utilisateur sans nom détecté - démarrage du workflow name_collection', {
+                    userId: user.id,
+                    phoneNumber: user.phoneNumber
+                });
+                return await this.startNameCollectionWorkflow(user, userMessage, messageId);
+            }
+            const intentResult = await this.intentClassifier.classifyIntent(userMessage);
+            logger_1.logger.info('Intention classifiée', {
+                userId: user.id,
+                intent: intentResult.primaryIntent.name,
+                confidence: intentResult.confidence,
+                workflowId: intentResult.primaryIntent.workflowId
+            });
+            if (intentResult.primaryIntent.workflowId && intentResult.confidence >= 0.6) {
+                logger_1.logger.info('Démarrage du workflow basé sur l\'intention', {
+                    userId: user.id,
+                    intent: intentResult.primaryIntent.name,
+                    workflowId: intentResult.primaryIntent.workflowId
+                });
+                return await this.startWorkflowFromIntent(user, intentResult.primaryIntent.workflowId, userMessage, messageId);
+            }
+            logger_1.logger.info('Aucun workflow détecté - réponse IA générative', {
+                userId: user.id,
+                intent: intentResult.primaryIntent.name
+            });
+            return await this.handleAIConversation(user, userMessage, intentResult.primaryIntent.name, messageId);
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur lors du traitement sans workflow actif', {
+                error,
+                userId: user.id
+            });
+            return this.generateFallbackResponse(userMessage, user.name);
+        }
+    }
+    async startNameCollectionWorkflow(user, userMessage, messageId) {
+        try {
+            const context = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => await this.workflowEngine.startWorkflow(user.id, 'name_collection'), 1800, messageId);
+            const stepResult = await this.workflowEngine.executeStep(user.id, context, userMessage);
+            return stepResult.message;
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur lors du démarrage du workflow name_collection', {
+                error,
+                userId: user.id
+            });
+            return `Salam 👋 Je suis *ISSA*, votre compagnon digital chez *ROI Takaful* 🌙
+
+Je suis là pour vous écouter, vous guider et répondre à vos questions sur nos produits d'assurance conformes à la Charia.
+
+Avant de commencer, comment puis-je vous appeler ? ✍️
+(J'aime bien savoir avec qui je discute, ça rend la conversation plus conviviale 😉)`;
+        }
+    }
+    async startWorkflowFromIntent(user, workflowId, userMessage, messageId) {
+        try {
+            const context = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => await this.workflowEngine.startWorkflow(user.id, workflowId), 2000, messageId);
+            const stepResult = await this.workflowEngine.executeStep(user.id, context, userMessage);
+            return stepResult.message;
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur lors du démarrage du workflow depuis intention', {
+                error,
+                userId: user.id,
+                workflowId
+            });
+            return await this.handleAIConversation(user, userMessage, 'fallback', messageId);
+        }
+    }
+    async handleAIConversation(user, userMessage, intentName, messageId) {
         try {
             const estimatedDuration = Math.min(Math.max(userMessage.length * 50, 2000), 8000);
             const aiResponse = await this.simulateTypingWhileProcessing(user.phoneNumber, async () => {
                 const conversationHistory = await this.databaseService.getConversationHistory(user.id);
-                const knowledgeContext = await this.knowledgeService.getContextForQuery(userMessage);
+                const searchResults = await this.knowledgeService.searchByIntent(userMessage, { name: intentName, confidence: 1 }, 5);
+                logger_1.logger.info('Knowledge search results', {
+                    query: userMessage.substring(0, 50),
+                    totalFound: searchResults.totalFound,
+                    entriesCount: searchResults.entries.length,
+                    topScores: searchResults.entries.slice(0, 3).map(e => e.relevanceScore),
+                    topTitles: searchResults.entries.slice(0, 3).map(e => e.title)
+                });
+                const formattedContext = await this.knowledgeService.formatContextForAI(searchResults, 3);
+                const knowledgeContext = formattedContext.formattedContext;
+                logger_1.logger.info('Knowledge context for AI', {
+                    contextLength: knowledgeContext.length,
+                    relevantEntries: formattedContext.relevantEntries.length,
+                    contextPreview: knowledgeContext.substring(0, 300)
+                });
                 const systemPrompt = this.aiService.createSystemPrompt(user.name, knowledgeContext);
+                logger_1.logger.info('System prompt created', {
+                    promptLength: systemPrompt.length,
+                    hasKnowledgeContext: systemPrompt.includes('CONNAISSANCES DISPONIBLES'),
+                    contextInPrompt: systemPrompt.includes(searchResults.entries[0]?.title || 'N/A')
+                });
                 return await this.aiService.generateResponse(userMessage, conversationHistory, systemPrompt);
             }, estimatedDuration, messageId);
             if (!aiResponse.success || !aiResponse.content) {
@@ -207,58 +283,15 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             return this.generateFallbackResponse(userMessage, user.name);
         }
     }
-    extractNameFromMessage(message) {
-        const cleanMessage = message.trim();
-        const namePatterns = [
-            /(?:je m'appelle|mon nom est|je suis|c'est)\s+([a-zA-ZÀ-ÿ\s]{2,30})/i,
-            /^([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ]{1,29})$/,
-            /^([A-ZÀ-Ÿ][a-zA-ZÀ-ÿ]+\s+[A-ZÀ-Ÿ][a-zA-ZÀ-ÿ]+)$/
-        ];
-        for (const pattern of namePatterns) {
-            const match = cleanMessage.match(pattern);
-            if (match && match[1]) {
-                return match[1].trim();
-            }
-        }
-        if (cleanMessage.length >= 2 && cleanMessage.length <= 30 &&
-            /^[a-zA-ZÀ-ÿ\s]+$/.test(cleanMessage) &&
-            !this.isInvalidName(cleanMessage)) {
-            return cleanMessage;
-        }
-        return null;
-    }
-    isInvalidName(name) {
-        const invalidPatterns = [
-            /^\d+$/,
-            /^[!@#$%^&*()]+$/,
-            /^(bonjour|salut|hello|hi|hey|salam|assalam|bonsoir|bonne\s*journée|ok|oui|non|merci|d'?accord)$/i,
-            /^.{1}$/,
-            /^\s+$/,
-            /\?/,
-            /^(c'est|cest|qu'est|quest|quoi|comment|pourquoi|qui|quand|où|ou|est-ce|quel|quelle)/i,
-            /(quoi|comment|pourquoi|qui|quand|où|quel|quelle)\s+/i
-        ];
-        return invalidPatterns.some(pattern => pattern.test(name));
-    }
-    isGreetingMessage(message) {
-        const greetingPatterns = [
-            /^(salut|bonjour|bonsoir|hello|hi|salam|assalam|peace)\s*$/i,
-            /^(salut|bonjour|bonsoir|hello|hi|salam)\s*[!.]*\s*$/i,
-            /^(assalam\s*alaykum|assalamou\s*alaykoum|salam\s*alaykoum)\s*[!.]*\s*$/i
-        ];
-        const cleanMessage = message.trim();
-        return greetingPatterns.some(pattern => pattern.test(cleanMessage));
-    }
     generateFallbackResponse(userMessage, userName) {
         const greeting = userName ? `${userName}, ` : '';
-        if (this.knowledgeService.isTakafulQuery(userMessage)) {
-            return `${greeting}pour les questions concernant nos produits Takaful conformes à la Charia, je vous invite à consulter notre site spécialisé :\n\n🕌 ROI Takaful : www.roitakaful.com\n📞 Service client : +237 691 100 575\n\nNotre équipe vous accompagnera avec plaisir !`;
-        }
-        const keywords = this.knowledgeService.identifyRelevantKeywords(userMessage);
-        if (keywords.length > 0) {
-            return this.aiService.createWebsiteRedirection(`votre question sur ${keywords.join(', ')}`);
-        }
-        return `${greeting}je vous remercie pour votre message. Pour une réponse précise et détaillée, n'hésitez pas à :\n\n🌐 Consulter notre site : www.royalonyx.cm\n📞 Contacter notre service client : +237 691 100 575\n📧 Nous écrire : contact@royalonyx.cm\n\nJe reste à votre disposition pour toute autre question !`;
+        return `${greeting}je vous remercie pour votre message. Pour une réponse précise et détaillée, n'hésitez pas à :
+
+🌐 Consulter notre site : www.royalonyx.cm
+📞 Contacter notre service client : +237 691 100 575
+📧 Nous écrire : contact@royalonyx.cm
+
+Je reste à votre disposition pour toute autre question !`;
     }
     async getConversationContext(phoneNumber) {
         try {
@@ -284,8 +317,7 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             .replace(/^### (.+)$/gm, '📋 $1')
             .replace(/^## (.+)$/gm, '📌 $1')
             .replace(/^# (.+)$/gm, '🎯 $1')
-            .replace(/\*\*([^*]+)\*\*/g, '$1')
-            .replace(/\*([^*]+)\*/g, '$1')
+            .replace(/\*\*([^*]+)\*\*/g, '*$1*')
             .replace(/__([^_]+)__/g, '$1')
             .replace(/_([^_]+)_/g, '$1')
             .replace(/^→\s*/gm, '▶️ ')
@@ -295,8 +327,6 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
             .replace(/^- /gm, '🔹 ')
             .replace(/^\+ /gm, '✅ ')
             .replace(/^\d+\.\s*/gm, '📍 ')
-            .replace(/\*Ce dont nous avons parlé\*/g, '💬 Ce dont nous avons parlé')
-            .replace(/\*([^*]+)\*/g, '$1')
             .replace(/\n\s*\n\s*\n/g, '\n\n')
             .replace(/\s+$/gm, '')
             .trim();
@@ -322,111 +352,13 @@ Avant de commencer, comment puis-je vous appeler ? ✍️
         const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
         await new Promise(resolve => setTimeout(resolve, delay));
     }
-    schedulePendingMessageResponse(user, userName, pendingMessage) {
-        setTimeout(async () => {
-            try {
-                const { container, TOKENS } = await Promise.resolve().then(() => __importStar(require('../core')));
-                const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE);
-                await whatsappService.sendTypingIndicator(user.phoneNumber);
-                const conversationHistory = await this.databaseService.getConversationHistory(user.id);
-                const knowledgeContext = await this.knowledgeService.getContextForQuery(pendingMessage);
-                const systemPrompt = this.aiService.createSystemPrompt(userName, knowledgeContext);
-                const aiResponse = await this.aiService.generateResponse(pendingMessage, conversationHistory, systemPrompt);
-                if (aiResponse.success && aiResponse.content) {
-                    const cleanMessage = this.cleanMarkdownForWhatsApp(aiResponse.content);
-                    await this.databaseService.saveConversationMessage({
-                        userId: user.id,
-                        phoneNumber: user.phoneNumber,
-                        messageId: `pending_response_${Date.now()}`,
-                        content: cleanMessage,
-                        messageType: 'bot',
-                        timestamp: new Date().toISOString(),
-                        aiProvider: this.aiService.getConfig().provider
-                    });
-                    await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
-                    logger_1.logger.info('Message en attente traité et réponse envoyée', {
-                        phoneNumber: user.phoneNumber,
-                        userName,
-                        pendingMessage
-                    });
-                }
-            }
-            catch (error) {
-                logger_1.logger.error('Erreur lors du traitement du message en attente', {
-                    error,
-                    phoneNumber: user.phoneNumber,
-                    userName,
-                    pendingMessage
-                });
-            }
-        }, 3000);
-    }
-    scheduleFollowUpMessage(user, userName) {
-        setTimeout(async () => {
-            try {
-                const { container, TOKENS } = await Promise.resolve().then(() => __importStar(require('../core')));
-                const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE);
-                await whatsappService.sendTypingIndicator(user.phoneNumber);
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                const followUpMessage = this.aiService.createFollowUpMessage(userName);
-                const cleanMessage = this.cleanMarkdownForWhatsApp(followUpMessage);
-                await this.databaseService.saveConversationMessage({
-                    userId: user.id,
-                    phoneNumber: user.phoneNumber,
-                    messageId: `followup_${Date.now()}`,
-                    content: cleanMessage,
-                    messageType: 'bot',
-                    timestamp: new Date().toISOString(),
-                    aiProvider: this.aiService.getConfig().provider
-                });
-                await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
-                logger_1.logger.debug('Message de suivi envoyé', {
-                    phoneNumber: user.phoneNumber,
-                    userName
-                });
-            }
-            catch (error) {
-                logger_1.logger.error('Erreur lors de l\'envoi du message de suivi', {
-                    error,
-                    phoneNumber: user.phoneNumber,
-                    userName
-                });
-            }
-        }, 2000);
-    }
-    async sendBotMessage(user, message, messageId) {
-        try {
-            const cleanMessage = this.cleanMarkdownForWhatsApp(message);
-            await this.databaseService.saveConversationMessage({
-                userId: user.id,
-                phoneNumber: user.phoneNumber,
-                messageId,
-                content: cleanMessage,
-                messageType: 'bot',
-                timestamp: new Date().toISOString(),
-                aiProvider: this.aiService.getConfig().provider
-            });
-            const { container, TOKENS } = await Promise.resolve().then(() => __importStar(require('../core')));
-            const whatsappService = await container.resolve(TOKENS.WHATSAPP_SERVICE);
-            await whatsappService.sendMessage(user.phoneNumber, cleanMessage);
-            logger_1.logger.debug('Message bot envoyé', {
-                phoneNumber: user.phoneNumber,
-                messageId,
-                messageLength: cleanMessage.length
-            });
-        }
-        catch (error) {
-            logger_1.logger.error('Erreur lors de l\'envoi du message bot', {
-                error,
-                phoneNumber: user.phoneNumber,
-                messageId
-            });
-            throw error;
-        }
-    }
     async resetConversation(phoneNumber) {
         try {
             const user = await this.databaseService.getOrCreateUser(phoneNumber);
+            const activeWorkflow = await this.workflowEngine.getActiveWorkflow(user.id);
+            if (activeWorkflow) {
+                await this.workflowEngine.cancelWorkflow(user.id, 'reset');
+            }
             await this.databaseService.updateUserState(user.id, 'greeting');
             logger_1.logger.info('Conversation réinitialisée', { phoneNumber, userId: user.id });
         }

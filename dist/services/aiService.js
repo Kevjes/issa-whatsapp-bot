@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AIService = void 0;
 const config_1 = require("../config");
 const logger_1 = require("../utils/logger");
+const generative_ai_1 = require("@google/generative-ai");
 class AIService {
     constructor(httpClient) {
         this.httpClient = httpClient;
@@ -19,7 +20,11 @@ class AIService {
         });
     }
     getDefaultModel() {
-        return config_1.config.ai.provider === 'openai' ? 'gpt-3.5-turbo' : 'deepseek-chat';
+        if (config_1.config.ai.provider === 'openai')
+            return 'gpt-3.5-turbo';
+        if (config_1.config.ai.provider === 'gemini')
+            return 'gemini-2.5-flash';
+        return 'deepseek-chat';
     }
     async generateResponse(userMessage, conversationHistory = [], systemPrompt) {
         try {
@@ -30,6 +35,9 @@ class AIService {
             let aiResponse;
             if (this.aiConfig.provider === 'openai') {
                 aiResponse = await this.callOpenAI(messages);
+            }
+            else if (this.aiConfig.provider === 'gemini') {
+                aiResponse = await this.callGemini(messages);
             }
             else {
                 aiResponse = await this.callDeepSeek(messages);
@@ -144,6 +152,49 @@ Je reste à votre disposition pour toute question sur nos produits et services d
         }
         catch (error) {
             logger_1.logger.error('Erreur API DeepSeek', { error });
+            throw error;
+        }
+    }
+    async callGemini(messages) {
+        try {
+            const genAI = new generative_ai_1.GoogleGenerativeAI(this.aiConfig.apiKey);
+            const systemMessage = messages.find(m => m.role === 'system');
+            const conversationMessages = messages.filter(m => m.role !== 'system');
+            const modelConfig = { model: this.aiConfig.model };
+            if (systemMessage) {
+                modelConfig.systemInstruction = systemMessage.content;
+            }
+            const model = genAI.getGenerativeModel(modelConfig);
+            let promptText = '';
+            for (const msg of conversationMessages) {
+                if (msg.role === 'user') {
+                    promptText += `Utilisateur: ${msg.content}\n\n`;
+                }
+                else if (msg.role === 'assistant') {
+                    promptText += `Assistant: ${msg.content}\n\n`;
+                }
+            }
+            logger_1.logger.info('Calling Gemini API with SDK', {
+                model: this.aiConfig.model,
+                systemInstructionPresent: !!systemMessage,
+                messageCount: conversationMessages.length
+            });
+            const result = await model.generateContent(promptText);
+            const response = await result.response;
+            const content = response.text();
+            logger_1.logger.info('Gemini response received', {
+                contentLength: content.length,
+                tokensUsed: response.usageMetadata?.totalTokenCount
+            });
+            return {
+                success: true,
+                content,
+                provider: 'gemini',
+                tokensUsed: response.usageMetadata?.totalTokenCount
+            };
+        }
+        catch (error) {
+            logger_1.logger.error('Erreur API Gemini', { error });
             throw error;
         }
     }

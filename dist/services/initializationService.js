@@ -4,8 +4,6 @@ exports.InitializationService = void 0;
 const databaseService_1 = require("./databaseService");
 const knowledgeService_1 = require("./knowledgeService");
 const aiService_1 = require("./aiService");
-const conversationService_1 = require("./conversationService");
-const conversationController_1 = require("../controllers/conversationController");
 const logger_1 = require("../utils/logger");
 class InitializationService {
     constructor() {
@@ -18,8 +16,8 @@ class InitializationService {
             this.aiService = new aiService_1.AIService(httpClient);
             this.knowledgeService = new knowledgeService_1.KnowledgeService(this.databaseService);
             await this.initializeKnowledgeBase();
-            this.conversationService = new conversationService_1.ConversationService(this.databaseService, this.aiService, this.knowledgeService);
-            this.conversationController = new conversationController_1.ConversationController(this.conversationService, whatsappService);
+            this.conversationService = null;
+            this.conversationController = null;
             logger_1.logger.info('Initialisation des services terminée avec succès');
             return {
                 conversationController: this.conversationController,

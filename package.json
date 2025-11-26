@@ -10,7 +10,9 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "init-knowledge": "ts-node src/scripts/initializeKnowledge.ts",
-    "setup": "npm run build && npm run init-knowledge"
+    "migrate-fts5": "ts-node src/scripts/migrateFTS5.ts",
+    "generate-embeddings": "ts-node src/scripts/generateEmbeddings.ts",
+    "setup": "npm run build && npm run init-knowledge && npm run migrate-fts5"
   },
   "keywords": [
     "whatsapp",
@@ -22,6 +24,7 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@types/sqlite3": "^3.1.11",
     "@types/uuid": "^10.0.0",
     "@xenova/transformers": "^2.17.2",

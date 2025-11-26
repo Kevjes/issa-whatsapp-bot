@@ -88,7 +88,7 @@ class HttpClient {
     }
     sanitizeHeaders(headers) {
         const sanitized = {};
-        const sensitiveKeys = ['authorization', 'x-auth-token', 'cookie', 'x-api-key'];
+        const sensitiveKeys = ['authorization', 'x-auth-token', 'cookie', 'x-api-key', 'x-goog-api-key'];
         for (const [key, value] of Object.entries(headers || {})) {
             if (sensitiveKeys.includes(key.toLowerCase())) {
                 sanitized[key] = '[REDACTED]';

@@ -45,17 +45,15 @@ export class InitializationService {
       await this.initializeKnowledgeBase();
 
       // 5. Initialiser le service de conversation
-      this.conversationService = new ConversationService(
-        this.databaseService,
-        this.aiService,
-        this.knowledgeService
-      );
+      // NOTE: InitializationService is DEPRECATED - use ServiceConfig with DI Container instead
+      // This is only kept for backward compatibility with getSystemStats()
+      // ConversationService now requires 5 dependencies, but we only pass 3 here
+      // This means this service won't work properly anymore - use container.resolve() instead
+      this.conversationService = null as any; // Disabled - use DI container
 
       // 6. Initialiser le contrôleur de conversation
-      this.conversationController = new ConversationController(
-        this.conversationService,
-        whatsappService
-      );
+      // Also disabled - use DI container
+      this.conversationController = null as any;
 
       logger.info('Initialisation des services terminée avec succès');
 
