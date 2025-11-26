@@ -251,6 +251,20 @@ export class ConversationService {
         return await this.startNameCollectionWorkflow(user, userMessage, messageId);
       }
 
+      // PRIORITÉ 1.5: Détecter les salutations et répondre avec un message personnalisé islamique
+      if (this.isGreetingMessage(userMessage)) {
+        logger.info('Message de salutation détecté - réponse avec message personnalisé', {
+          userId: user.id,
+          userName: user.name
+        });
+
+        // Utiliser le message de salutation personnalisé avec expressions musulmanes
+        const greetingResponse = this.aiService.createGreetingMessage(user.name);
+        const followUpMessage = this.aiService.createFollowUpMessage(user.name);
+
+        return `${greetingResponse}\n\n${followUpMessage}`;
+      }
+
       // PRIORITÉ 2: Classifier l'intention du message
       const intentResult = await this.intentClassifier.classifyIntent(userMessage);
 
@@ -562,6 +576,21 @@ Je reste à votre disposition pour toute autre question !`;
     const delay = Math.max(minDelay, Math.min(maxDelay * randomFactor, maxDelay));
 
     await new Promise(resolve => setTimeout(resolve, delay));
+  }
+
+  /**
+   * Vérifier si un message est une salutation
+   */
+  private isGreetingMessage(message: string): boolean {
+    const normalizedMessage = message.toLowerCase().trim();
+
+    const greetingPatterns = [
+      /^(salam|salam alaykoum|salam alaykum|assalam alaykoum|assalam alaykum|salamou alaykoum|salamou alaykum)\b/i,
+      /^(bonjour|bonsoir|salut|hello|hi|hey)\b/i,
+      /^(coucou|cc|yo)\b/i
+    ];
+
+    return greetingPatterns.some(pattern => pattern.test(normalizedMessage));
   }
 
   /**

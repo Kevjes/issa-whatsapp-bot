@@ -25,6 +25,7 @@ export declare class ConversationService {
     private cleanMarkdownForWhatsApp;
     private simulateTypingWhileProcessing;
     private simulateRealisticTypingDelay;
+    private isGreetingMessage;
     resetConversation(phoneNumber: string): Promise<void>;
 }
 //# sourceMappingURL=conversationService.d.ts.map
